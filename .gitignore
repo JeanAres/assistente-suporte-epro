@@ -1,0 +1,12 @@
+# Segredos e Configurações Locais
+.streamlit/
+.env
+
+# Ambientes Virtuais
+venv/
+env/
+.venv/
+
+# Arquivos de Cache do Python
+__pycache__/
+*.pyc
