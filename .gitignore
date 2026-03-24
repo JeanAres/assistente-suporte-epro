@@ -10,3 +10,7 @@ env/
 # Arquivos de Cache do Python
 __pycache__/
 *.pyc
+
+# CSV desnecessário
+
+chamados4Biz.csv
