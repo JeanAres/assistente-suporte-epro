@@ -55,7 +55,7 @@ def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
         mensagem["To"] = email_destino
         mensagem["Subject"] = "Relatorio de Chamados 4Biz - Assistente IA"
 
-        corpo_email = f"Ola,\n\nSegue em anexo o relatorio contendo {len(df)} chamados solicitados via chat.\n\nAtenciosamente,\nAssistente Python"
+        corpo_email = f"Ola,\n\nSegue em anexo o relatorio contendo {len(df)} chamados solicitados via chat.\n\nAtenciosamente,\nAssistente E-pro"
         mensagem.attach(MIMEText(corpo_email, "plain", "utf-8"))
 
         # 5. Anexa o CSV
