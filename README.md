@@ -16,7 +16,7 @@ Chatbot inteligente para consulta e gerenciamento de chamados do sistema 4Biz, c
 
 ---
 
-## 🛠️ Tecnologias
+## Tecnologias
 
 | Tecnologia | Uso |
 |---|---|
@@ -84,7 +84,7 @@ Acesse em: `http://localhost:8501`
 
 ---
 
-## 💬 Exemplos de uso
+## Exemplos de uso
 
 ```
 "Quantos chamados estão agendados?"
