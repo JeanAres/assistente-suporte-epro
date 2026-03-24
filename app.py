@@ -92,9 +92,10 @@ REGRA DE BUSCA DE NOMES: Para buscas de pessoas, substitua espaços por '%' e us
 REGRA DE FORMATACAO: NUNCA junte resultados na mesma linha. Para listar os tickets, voce DEVE deixar uma linha em branco (duplo Enter) entre cada um deles. Siga ESTRITAMENTE o formato:
 Ticket [ticket] - [situacao_tarefa] - [solicitante] - Aberto em [DD/MM/YYYY HH:MM:SS]
 REGRA DE DESCRICAO: Quando o usuario pedir a "descricao", detalhes ou o texto de um ticket, OBRIGATORIO trazer o texto INTACTO e COMPLETO do banco de dados. NUNCA resuma, NUNCA corte o texto e NUNCA use reticencias (...).
+REGRA DE ENVIO DE EMAIL: Quando o usuario fornecer um email apos ser solicitado, voce DEVE imediatamente chamar a ferramenta 'enviar_relatorio_email' passando o email fornecido e uma nova consulta SQL que busque os dados discutidos na conversa. NUNCA liste os dados novamente antes de enviar.
 """
 
-agente_sql = create_sql_agent(llm=llm, db=db, agent_type="tool-calling", verbose=True, prefix=PREFIXO_SISTEMA, extra_tools=[enviar_relatorio_email], max_iterations=6, handle_parsing_errors=True)
+agente_sql = create_sql_agent(llm=llm, db=db, agent_type="tool-calling", verbose=True, prefix=PREFIXO_SISTEMA, extra_tools=[enviar_relatorio_email], max_iterations=10, handle_parsing_errors=True)
 
 # --- AREA DO CHAT ---
 st.title("Assistente de Suporte Tecnico")
@@ -116,7 +117,7 @@ if prompt := st.chat_input("Pergunte algo..."):
             
             # --- O CÉREBRO INTELIGENTE COM CONTEXTO (ROTEADOR) ---
             # Pega as últimas 4 mensagens para a IA entender do que vocês estao falando
-            historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-4:]])
+            historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-6:]])
             
             prompt_classificador = f"""
             Analise a conversa recente: [{historico_contexto}]
@@ -133,7 +134,7 @@ if prompt := st.chat_input("Pergunte algo..."):
             else:
                 # É sobre dados ou continuacao do assunto! Aciona o Agente SQL
                 try:
-                    historico = "\n".join([f"{m['role']}: {m['content']}" for m in chat_info["mensagens"][-4:]])
+                    historico = "\n".join([f"{m['role']}: {m['content']}" for m in chat_info["mensagens"][-6:]])
                     input_final = f"HISTORICO:\n{historico}\n\nPERGUNTA: {prompt}\n(Vá direto ao ponto e use SQL rapido)"
                     
                     res = agente_sql.invoke({"input": input_final})
