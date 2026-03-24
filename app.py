@@ -8,7 +8,7 @@ import uuid
 # 1. Configuracao da Pagina
 st.set_page_config(page_title="Assistente Epro", layout="wide")
 
-# CSS Estilo Gemini: Remove setas, limpa popover e faz hover
+# CSS Estilo Gemini
 st.markdown("""
     <style>
     [data-testid="stPopover"] svg { display: none !important; }
@@ -80,11 +80,13 @@ with st.sidebar:
 db = SQLDatabase.from_uri(st.secrets["NEON_DB_URL"].replace("postgres://", "postgresql://", 1), max_string_length=3000)
 llm = ChatGroq(api_key=st.secrets["GROQ_API_KEY"], model_name="llama-3.3-70b-versatile", temperature=0)
 
-# 2. Prefixo com a nova regra de descricao adicionada ao final
+# 2. Prefixo do Agent
 PREFIXO_SISTEMA = """Voce e um assistente tecnico de suporte focado em SQL.
 PRIORIDADE: Responda perguntas de contagem ou status DIRETAMENTE no chat.
 REGRA DE EMAIL: SO peça e-mail se o usuario usar palavras como "enviar" ou "relatorio".
 REGRA DE BANCO DE DADOS: A tabela principal SEMPRE se chama 'chamados', mesmo que perguntem sobre "tickets". As colunas sao 'ticket', 'situacao_tarefa', 'solicitante', 'data_abertura' e 'descricao'.
+REGRA DE SITUACAO: A coluna 'situacao_tarefa' possui EXATAMENTE estes valores: 'Fechado', 'Pendente DTI', 'Novo', 'Em andamento', 'Agendado', 'Cancelado' e 'Resolvido'. Ao filtrar por situacao, SEMPRE use o valor exato da lista acima. Exemplos de mapeamento: 'agendados' ou 'agendado' = 'Agendado' | 'fechados' ou 'fechado' = 'Fechado' | 'pendentes' = 'Pendente DTI' | 'novos' ou 'novo' = 'Novo' | 'em andamento' = 'Em andamento' | 'cancelados' = 'Cancelado' | 'resolvidos' = 'Resolvido'.
+REGRA DE ORDENACAO: Ao listar chamados, SEMPRE ordene pelo campo 'data_abertura' de forma DESCENDENTE (ORDER BY data_abertura DESC), exibindo os mais recentes no topo da lista.
 REGRA DE DATAS: OBRIGATORIO: Exiba a data EXATAMENTE como esta no banco, apenas convertendo para o padrao brasileiro (DD/MM/YYYY HH:MM:SS). NUNCA altere a hora (nao diminua nem some horas) e NUNCA fale sobre fuso horario.
 REGRA DE BUSCA DE NOMES: Para buscas de pessoas, substitua espaços por '%' e use ILIKE.
 REGRA DE FORMATACAO: NUNCA junte resultados na mesma linha. Para listar os tickets, voce DEVE deixar uma linha em branco (duplo Enter) entre cada um deles. Siga ESTRITAMENTE o formato:
@@ -113,7 +115,7 @@ if prompt := st.chat_input("Pergunte algo..."):
         with st.spinner("Analisando..."):
             
             # --- O CÉREBRO INTELIGENTE COM CONTEXTO (ROTEADOR) ---
-            # Pega as últimas 3 mensagens para a IA entender do que vocês estao falando
+            # Pega as últimas 4 mensagens para a IA entender do que vocês estao falando
             historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-4:]])
             
             prompt_classificador = f"""
@@ -151,7 +153,7 @@ if prompt := st.chat_input("Pergunte algo..."):
             st.markdown(texto_final)
             chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
 
-    # --- LOGICA DE TITULO REFORCADA ---
+    # --- LOGICA DE TITULO  ---
     if chat_info["titulo"] == "Nova Conversa" and len(chat_info["mensagens"]) >= 2:
         try:
             p_resumo = f"Extraia o assunto principal desta frase em 2 ou 3 palavras: '{prompt}'. Ex: 'Chamados Paulo Basso'. Responda APENAS as palavras, sem pontos ou aspas."
