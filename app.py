@@ -208,7 +208,7 @@ def enviar_senha_temporaria(email_destino):
             return False, "E-mail não encontrado."
         senha_temp = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
         senha_hash = bcrypt.hashpw(senha_temp.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        cur.execute("UPDATE usuarios SET senha = %s, senha_temporaria = TRUE WHERE email = %s", (senha_hash, email_destino))
+        cur.execute("UPDATE usuarios SET senha = %s, senha_temporaria = TRUE, tentativas_login = 0, bloqueado_ate = NULL WHERE email = %s", (senha_hash, email_destino))
         conn.commit()
         conn.close()
         remetente = st.secrets["EMAIL_REMETENTE"]
@@ -232,12 +232,44 @@ def login_usuario_completo(email, senha):
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT id, nome, senha, senha_temporaria FROM usuarios WHERE email = %s", (email,))
+        cur.execute("SELECT id, nome, senha, senha_temporaria, tentativas_login, bloqueado_ate FROM usuarios WHERE email = %s", (email,))
         row = cur.fetchone()
+
+        if not row:
+            conn.close()
+            return False, "E-mail ou senha incorretos.", False
+
+        usuario_id, nome, senha_hash, is_temp, tentativas, bloqueado_ate = row
+
+        # Verifica se está bloqueado
+        if bloqueado_ate and datetime.now() < bloqueado_ate:
+            minutos = int((bloqueado_ate - datetime.now()).total_seconds() / 60) + 1
+            conn.close()
+            return False, f"Conta bloqueada. Tente novamente em {minutos} minuto(s) ou redefina sua senha.", False
+
+        # Senha correta
+        if bcrypt.checkpw(senha.encode("utf-8"), senha_hash.encode("utf-8")):
+            cur.execute("UPDATE usuarios SET tentativas_login = 0, bloqueado_ate = NULL WHERE id = %s", (usuario_id,))
+            conn.commit()
+            conn.close()
+            return True, {"id": usuario_id, "nome": nome, "email": email}, is_temp
+
+        # Senha errada — incrementa tentativas
+        novas_tentativas = (tentativas or 0) + 1
+        if novas_tentativas >= 5:
+            from datetime import timedelta
+            bloqueio = datetime.now() + timedelta(minutes=30)
+            cur.execute("UPDATE usuarios SET tentativas_login = %s, bloqueado_ate = %s WHERE id = %s", (novas_tentativas, bloqueio, usuario_id))
+            conn.commit()
+            conn.close()
+            return False, "Conta bloqueada por 30 minutos após 5 tentativas incorretas.", False
+
+        cur.execute("UPDATE usuarios SET tentativas_login = %s WHERE id = %s", (novas_tentativas, usuario_id))
+        conn.commit()
         conn.close()
-        if row and bcrypt.checkpw(senha.encode("utf-8"), row[2].encode("utf-8")):
-            return True, {"id": row[0], "nome": row[1], "email": email}, row[3]
-        return False, "E-mail ou senha incorretos.", False
+        restantes = 5 - novas_tentativas
+        return False, f"E-mail ou senha incorretos. {restantes} tentativa(s) restante(s).", False
+
     except Exception as e:
         return False, f"Erro ao fazer login: {e}", False
 
