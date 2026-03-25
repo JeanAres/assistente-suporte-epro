@@ -383,6 +383,7 @@ Ticket [ticket] - [situacao_tarefa] - [solicitante] - Aberto em [DD/MM/YYYY HH:M
 REGRA DE DESCRICAO: Quando o usuario pedir a "descricao", detalhes ou o texto de um ticket, OBRIGATORIO trazer o texto INTACTO e COMPLETO do banco de dados. NUNCA resuma, NUNCA corte o texto e NUNCA use reticencias (...).
 REGRA DE ENVIO DE EMAIL: Apos confirmar o email de destino, voce DEVE imediatamente chamar a ferramenta 'enviar_relatorio_email' passando o email confirmado e uma nova consulta SQL que busque os dados discutidos na conversa. NUNCA liste os dados novamente antes de enviar.
 REGRA DE ABERTOS HOJE: Quando o usuario perguntar quantos chamados "foram abertos hoje" ou "abertos hoje", SEMPRE filtre pela coluna 'data_abertura' usando a data atual (DATE(data_abertura) = CURRENT_DATE). NUNCA filtre por situacao_tarefa nesse caso.
+REGRA DE PENDENTES DTI: Quando o usuario perguntar sobre chamados com situacao 'Pendente DTI' (seja pela mensagem pre-definida ou digitando manualmente, independente da forma que escrever), SEMPRE aplique estas restricoes OBRIGATORIAS: (1) Retorne APENAS os campos 'ticket' e 'solicitante', nada mais. (2) Limite SEMPRE a 10 resultados (LIMIT 10). (3) Ordene SEMPRE do mais recente para o mais antigo (ORDER BY data_abertura DESC). (4) Formate como lista simples: "Ticket [numero] - [solicitante]". Se o usuario pedir descricao ou detalhes de 3 ou mais tickets dessa lista, NAO retorne as descricoes e em vez disso pergunte para qual email deve enviar o relatorio completo, seguindo a REGRA DE EMAIL ja estabelecida. Se pedir de 1 ou 2 tickets apenas, pode retornar a descricao normalmente.
 """
 
 agente_sql = create_sql_agent(
@@ -396,7 +397,7 @@ chat_info = st.session_state.chats[st.session_state.chat_atual]
 
 SUGESTOES = [
     "Quantos chamados foram abertos hoje?",
-    "Quais chamados estão pendentes DTI?",
+    "Resumo dos chamados Pendentes DTI",
     "Quais chamados estão agendados?",
     "Quais chamados estão em andamento?",
 ]
