@@ -608,41 +608,58 @@ if prompt:
         st.markdown(prompt)
 
     with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner("Analisando..."):
+        indicador = st.empty()
+        indicador.markdown("""
+            <div style="display:flex; align-items:center; gap:5px; padding: 4px 0;">
+                <span style="font-size:0.9rem; color:#888;">Analisando</span>
+                <span style="display:inline-flex; gap:3px;">
+                    <span style="width:6px;height:6px;border-radius:50%;background:#888;animation:bounce 1.2s infinite ease-in-out;animation-delay:0s;"></span>
+                    <span style="width:6px;height:6px;border-radius:50%;background:#888;animation:bounce 1.2s infinite ease-in-out;animation-delay:0.2s;"></span>
+                    <span style="width:6px;height:6px;border-radius:50%;background:#888;animation:bounce 1.2s infinite ease-in-out;animation-delay:0.4s;"></span>
+                </span>
+            </div>
+            <style>
+            @keyframes bounce {
+                0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+                40% { transform: translateY(-6px); opacity: 1; }
+            }
+            </style>
+        """, unsafe_allow_html=True)
 
-            historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-6:]])
+        historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-6:]])
 
-            prompt_classificador = f"""
-            Analise a conversa recente: [{historico_contexto}]
-            A última mensagem do usuario requer buscar dados, continuacao sobre um ticket/chamado, detalhes, relatorios ou confirmacao de envio de email? Responda APENAS 'SQL'.
-            Se for EXCLUSIVAMENTE uma saudacao ou bate-papo generico (ex: 'oi', 'tudo bem', 'como vai', 'obrigado'), responda APENAS 'CHAT'.
-            """
-            intencao = llm.invoke(prompt_classificador).content.strip().upper()
+        prompt_classificador = f"""
+        Analise a conversa recente: [{historico_contexto}]
+        A última mensagem do usuario requer buscar dados, continuacao sobre um ticket/chamado, detalhes, relatorios ou confirmacao de envio de email? Responda APENAS 'SQL'.
+        Se for EXCLUSIVAMENTE uma saudacao ou bate-papo generico (ex: 'oi', 'tudo bem', 'como vai', 'obrigado'), responda APENAS 'CHAT'.
+        """
+        intencao = llm.invoke(prompt_classificador).content.strip().upper()
 
-            if "CHAT" in intencao:
-                prompt_chat = f"Voce é o E-Pro Agent. Responda de forma natural e amigavel a interacao: '{prompt}'"
-                texto_final = llm.invoke(prompt_chat).content.strip()
-            else:
-                try:
-                    historico = "\n".join([f"{m['role']}: {m['content']}" for m in chat_info["mensagens"][-6:]])
-                    input_final = f"HISTORICO:\n{historico}\n\nPERGUNTA: {prompt}\n(Vá direto ao ponto e use SQL rapido)"
+        if "CHAT" in intencao:
+            prompt_chat = f"Voce é o E-Pro Agent. Responda de forma natural e amigavel a interacao: '{prompt}'"
+            texto_final = llm.invoke(prompt_chat).content.strip()
+        else:
+            try:
+                historico = "\n".join([f"{m['role']}: {m['content']}" for m in chat_info["mensagens"][-6:]])
+                input_final = f"HISTORICO:\n{historico}\n\nPERGUNTA: {prompt}\n(Vá direto ao ponto e use SQL rapido)"
 
-                    res = agente_sql.invoke({"input": input_final})
-                    texto_final = res["output"]
+                res = agente_sql.invoke({"input": input_final})
+                texto_final = res["output"]
 
-                    if "enviar_relatorio_email" in str(res) and "Sucesso" in str(res):
-                        texto_final = "E-mail enviado, favor verificar sua caixa de emails"
-                    elif "Agent stopped due to max iterations" in texto_final:
-                        texto_final = "A consulta ficou muito complexa e eu precisei parar. Pode tentar fazer a pergunta de uma forma mais simples?"
+                if "enviar_relatorio_email" in str(res) and "Sucesso" in str(res):
+                    texto_final = "E-mail enviado, favor verificar sua caixa de emails"
+                elif "Agent stopped due to max iterations" in texto_final:
+                    texto_final = "A consulta ficou muito complexa e eu precisei parar. Pode tentar fazer a pergunta de uma forma mais simples?"
 
-                except Exception as e:
-                    if "max iterations" in str(e).lower():
-                        texto_final = "A consulta demorou demais ou o e-mail foi enviado com sucesso em segundo plano."
-                    else:
-                        texto_final = "Tive um problema tecnico ao buscar esses dados. Pode tentar reformular a pergunta?"
+            except Exception as e:
+                if "max iterations" in str(e).lower():
+                    texto_final = "A consulta demorou demais ou o e-mail foi enviado com sucesso em segundo plano."
+                else:
+                    texto_final = "Tive um problema tecnico ao buscar esses dados. Pode tentar reformular a pergunta?"
 
-            st.markdown(texto_final)
-            chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
+        indicador.empty()
+        st.markdown(texto_final)
+    chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
 
     salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
 
