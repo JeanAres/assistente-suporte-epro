@@ -7,7 +7,11 @@ Chatbot inteligente para consulta e gerenciamento de chamados do sistema 4Biz, c
 ## Funcionalidades
 
 - Login e cadastro de usuários com senha criptografada
+- Recuperação de senha via e-mail com senha temporária e troca obrigatória no primeiro acesso
 - Histórico de conversas persistente por usuário (salvo no banco de dados)
+- Paginação do histórico de conversas na sidebar
+- Saudação personalizada com o dia da semana e sugestões de perguntas rápidas
+- Perfil do usuário com edição de dados e redefinição de senha
 - Consultar quantidade de chamados por status (Agendado, Pendente DTI, Em andamento, etc.)
 - Listar chamados com filtros por situação ou solicitante
 - Visualizar a descrição completa de um chamado
@@ -63,12 +67,12 @@ CREATE TABLE chamados (
 
 -- Tabela de usuários
 CREATE TABLE usuarios (
-    id        SERIAL PRIMARY KEY,
-    nome      TEXT NOT NULL,
-    username  TEXT UNIQUE NOT NULL,
-    senha     TEXT NOT NULL,
-    email     TEXT NOT NULL,
-    criado_em TIMESTAMP DEFAULT NOW()
+    id                SERIAL PRIMARY KEY,
+    nome              TEXT NOT NULL,
+    senha             TEXT NOT NULL,
+    email             TEXT UNIQUE NOT NULL,
+    senha_temporaria  BOOLEAN DEFAULT FALSE,
+    criado_em         TIMESTAMP DEFAULT NOW()
 );
 
 -- Tabela de histórico de chats
@@ -137,7 +141,8 @@ Acesse em: `http://localhost:8501`
 ## Exemplos de uso
 
 ```
-"Quantos chamados estão agendados?"
+"Quantos chamados foram abertos hoje?"
+"Resumo dos chamados Pendentes DTI"
 "Quais são os chamados em andamento?"
 "Me mostre os chamados do Paulo Basso"
 "Qual a descrição do ticket 1234?"
