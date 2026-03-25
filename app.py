@@ -212,6 +212,11 @@ usuario = st.session_state.usuario_logado
 if "pagina_perfil" not in st.session_state:
     st.session_state.pagina_perfil = False
 
+if "pagina_chats" not in st.session_state:
+    st.session_state.pagina_chats = 1
+
+CHATS_POR_PAGINA = 10
+
 def nova_conversa():
     id_chat = str(uuid.uuid4())
     st.session_state.chats[id_chat] = {"titulo": "Nova Conversa", "mensagens": [], "fixado": False}
@@ -246,11 +251,15 @@ with st.sidebar:
         key=lambda x: (st.session_state.chats[x].get("fixado", False), x),
         reverse=True
     )
+    ids_com_mensagem = [i for i in ids_ordenados if st.session_state.chats[i]["mensagens"]]
 
-    for id_chat in ids_ordenados:
+    total_paginas = max(1, -(-len(ids_com_mensagem) // CHATS_POR_PAGINA))
+    inicio = (st.session_state.pagina_chats - 1) * CHATS_POR_PAGINA
+    fim = inicio + CHATS_POR_PAGINA
+    ids_pagina = ids_com_mensagem[inicio:fim]
+
+    for id_chat in ids_pagina:
         info = st.session_state.chats[id_chat]
-        if not info["mensagens"]: continue
-
         col_btn, col_menu = st.columns([0.88, 0.12])
         label = f"{'[FIX] ' if info.get('fixado') else ''}{info['titulo'][:20]}"
         tipo = "primary" if id_chat == st.session_state.chat_atual else "secondary"
@@ -273,6 +282,15 @@ with st.sidebar:
                 else:
                     st.session_state.chat_atual = list(st.session_state.chats.keys())[0]
                 st.rerun()
+
+    if total_paginas > 1:
+        st.divider()
+        col_ant, col_pag, col_prox = st.columns([0.3, 0.4, 0.3])
+        if col_ant.button("←", use_container_width=True, disabled=st.session_state.pagina_chats <= 1):
+            st.session_state.pagina_chats -= 1; st.rerun()
+        col_pag.caption(f"{st.session_state.pagina_chats}/{total_paginas}")
+        if col_prox.button("→", use_container_width=True, disabled=st.session_state.pagina_chats >= total_paginas):
+            st.session_state.pagina_chats += 1; st.rerun()
 
     st.divider()
     if st.button("Limpar Tudo", use_container_width=True, type="secondary"):
