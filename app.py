@@ -40,44 +40,44 @@ def get_conn():
     return psycopg2.connect(db_url)
 
 # --- FUNCOES DE AUTENTICACAO ---
-def cadastrar_usuario(nome, username, senha, email):
+def cadastrar_usuario(nome, senha, email):
     try:
         conn = get_conn()
         cur = conn.cursor()
         senha_hash = bcrypt.hashpw(senha.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
         cur.execute(
-            "INSERT INTO usuarios (nome, username, senha, email) VALUES (%s, %s, %s, %s)",
-            (nome, username, senha_hash, email)
+            "INSERT INTO usuarios (nome, senha, email) VALUES (%s, %s, %s)",
+            (nome, senha_hash, email)
         )
         conn.commit()
         conn.close()
         return True, "Cadastro realizado com sucesso!"
     except psycopg2.errors.UniqueViolation:
-        return False, "Nome de usuário já existe. Escolha outro."
+        return False, "Este e-mail já está cadastrado."
     except Exception as e:
         return False, f"Erro ao cadastrar: {e}"
 
-def login_usuario(username, senha):
+def login_usuario(email, senha):
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT id, nome, senha, email FROM usuarios WHERE username = %s", (username,))
+        cur.execute("SELECT id, nome, senha FROM usuarios WHERE email = %s", (email,))
         row = cur.fetchone()
         conn.close()
         if row and bcrypt.checkpw(senha.encode("utf-8"), row[2].encode("utf-8")):
-            return True, {"id": row[0], "nome": row[1], "email": row[3], "username": username}
-        return False, "Usuário ou senha incorretos."
+            return True, {"id": row[0], "nome": row[1], "email": email}
+        return False, "E-mail ou senha incorretos."
     except Exception as e:
         return False, f"Erro ao fazer login: {e}"
 
 # --- FUNCOES DE CHAT ---
-def carregar_chats(username):
+def carregar_chats(email):
     try:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
             "SELECT id, titulo, fixado, mensagens FROM historico_chats WHERE username = %s ORDER BY atualizado_em DESC",
-            (username,)
+            (email,)
         )
         rows = cur.fetchall()
         conn.close()
@@ -93,7 +93,7 @@ def carregar_chats(username):
         st.error(f"Erro ao carregar chats: {e}")
         return {}
 
-def salvar_chat(id_chat, info, username):
+def salvar_chat(id_chat, info, email):
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -105,7 +105,7 @@ def salvar_chat(id_chat, info, username):
                 fixado = EXCLUDED.fixado,
                 mensagens = EXCLUDED.mensagens,
                 atualizado_em = NOW()
-        """, (id_chat, info["titulo"], info["fixado"], json.dumps(info["mensagens"]), username))
+        """, (id_chat, info["titulo"], info["fixado"], json.dumps(info["mensagens"]), email))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -121,11 +121,11 @@ def deletar_chat(id_chat):
     except Exception as e:
         st.error(f"Erro ao deletar chat: {e}")
 
-def deletar_todos_chats(username):
+def deletar_todos_chats(email):
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("DELETE FROM historico_chats WHERE username = %s", (username,))
+        cur.execute("DELETE FROM historico_chats WHERE username = %s", (email,))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -141,13 +141,13 @@ if st.session_state.usuario_logado is None:
 
     with aba_login:
         st.subheader("Login")
-        username_login = st.text_input("Usuário", key="login_user")
+        email_login = st.text_input("E-mail", key="login_email")
         senha_login = st.text_input("Senha", type="password", key="login_pass")
         if st.button("Entrar", use_container_width=True, type="primary"):
-            ok, resultado = login_usuario(username_login, senha_login)
+            ok, resultado = login_usuario(email_login, senha_login)
             if ok:
                 st.session_state.usuario_logado = resultado
-                st.session_state.chats = carregar_chats(resultado["username"])
+                st.session_state.chats = carregar_chats(resultado["email"])
                 st.session_state.chat_atual = None
                 st.rerun()
             else:
@@ -156,17 +156,16 @@ if st.session_state.usuario_logado is None:
     with aba_cadastro:
         st.subheader("Criar conta")
         nome_cad = st.text_input("Nome completo", key="cad_nome")
-        username_cad = st.text_input("Usuário", key="cad_user")
         email_cad = st.text_input("E-mail", key="cad_email")
         senha_cad = st.text_input("Senha", type="password", key="cad_pass")
         senha_cad2 = st.text_input("Confirmar senha", type="password", key="cad_pass2")
         if st.button("Cadastrar", use_container_width=True, type="primary"):
-            if not all([nome_cad, username_cad, email_cad, senha_cad, senha_cad2]):
+            if not all([nome_cad, email_cad, senha_cad, senha_cad2]):
                 st.error("Preencha todos os campos.")
             elif senha_cad != senha_cad2:
                 st.error("As senhas não coincidem.")
             else:
-                ok, msg = cadastrar_usuario(nome_cad, username_cad, senha_cad, email_cad)
+                ok, msg = cadastrar_usuario(nome_cad, senha_cad, email_cad)
                 if ok:
                     st.success(msg + " Faça login para continuar.")
                 else:
@@ -182,7 +181,7 @@ def nova_conversa():
     st.session_state.chat_atual = id_chat
 
 if "chats" not in st.session_state:
-    st.session_state.chats = carregar_chats(usuario["username"])
+    st.session_state.chats = carregar_chats(usuario["email"])
 
 if "chat_atual" not in st.session_state or st.session_state.chat_atual is None:
     if st.session_state.chats:
@@ -219,7 +218,7 @@ with st.sidebar:
         with col_menu.popover("⋮"):
             if st.button("Fixar / Desafixar", key=f"fix_{id_chat}", use_container_width=True):
                 st.session_state.chats[id_chat]["fixado"] = not info.get("fixado", False)
-                salvar_chat(id_chat, st.session_state.chats[id_chat], usuario["username"])
+                salvar_chat(id_chat, st.session_state.chats[id_chat], usuario["email"])
                 st.rerun()
             if st.button("Excluir", key=f"del_{id_chat}", use_container_width=True, type="primary"):
                 deletar_chat(id_chat)
@@ -232,7 +231,7 @@ with st.sidebar:
 
     st.divider()
     if st.button("Limpar Tudo", use_container_width=True, type="secondary"):
-        deletar_todos_chats(usuario["username"])
+        deletar_todos_chats(usuario["email"])
         st.session_state.chats = {}
         nova_conversa(); st.rerun()
     if st.button("Sair", use_container_width=True):
@@ -317,7 +316,7 @@ if prompt := st.chat_input("Pergunte algo..."):
             st.markdown(texto_final)
             chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
 
-    salvar_chat(st.session_state.chat_atual, chat_info, usuario["username"])
+    salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
 
     # --- LOGICA DE TITULO ---
     if chat_info["titulo"] == "Nova Conversa" and len(chat_info["mensagens"]) >= 2:
@@ -332,5 +331,5 @@ if prompt := st.chat_input("Pergunte algo..."):
         except:
             chat_info["titulo"] = prompt[:20]
 
-        salvar_chat(st.session_state.chat_atual, chat_info, usuario["username"])
+        salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
         st.rerun()
