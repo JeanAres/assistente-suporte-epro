@@ -206,9 +206,11 @@ def enviar_senha_temporaria(email_destino):
         if not row:
             conn.close()
             return False, "E-mail não encontrado."
+        from datetime import timedelta
         senha_temp = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
         senha_hash = bcrypt.hashpw(senha_temp.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        cur.execute("UPDATE usuarios SET senha = %s, senha_temporaria = TRUE, tentativas_login = 0, bloqueado_ate = NULL WHERE email = %s", (senha_hash, email_destino))
+        expira_em = datetime.now() + timedelta(hours=24)
+        cur.execute("UPDATE usuarios SET senha = %s, senha_temporaria = TRUE, senha_temp_expira = %s, tentativas_login = 0, bloqueado_ate = NULL WHERE email = %s", (senha_hash, expira_em, email_destino))
         conn.commit()
         conn.close()
         remetente = st.secrets["EMAIL_REMETENTE"]
@@ -217,7 +219,7 @@ def enviar_senha_temporaria(email_destino):
         mensagem["From"] = remetente
         mensagem["To"] = email_destino
         mensagem["Subject"] = "E-Pro Agent - Senha Temporária"
-        corpo = f"Olá,\n\nSua senha temporária é: {senha_temp}\n\nAo acessar o sistema, você será solicitado a cadastrar uma nova senha.\n\nAtenciosamente,\nE-Pro Agent"
+        corpo = f"Olá,\n\nSua senha temporária é: {senha_temp}\n\nEsta senha é válida por 24 horas. Ao acessar o sistema, você será solicitado a cadastrar uma nova senha.\n\nAtenciosamente,\nE-Pro Agent"
         mensagem.attach(MIMEText(corpo, "plain", "utf-8"))
         servidor = smtplib.SMTP("smtp.gmail.com", 587)
         servidor.starttls()
@@ -232,14 +234,14 @@ def login_usuario_completo(email, senha):
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT id, nome, senha, senha_temporaria, tentativas_login, bloqueado_ate FROM usuarios WHERE email = %s", (email,))
+        cur.execute("SELECT id, nome, senha, senha_temporaria, tentativas_login, bloqueado_ate, senha_temp_expira FROM usuarios WHERE email = %s", (email,))
         row = cur.fetchone()
 
         if not row:
             conn.close()
             return False, "E-mail ou senha incorretos.", False
 
-        usuario_id, nome, senha_hash, is_temp, tentativas, bloqueado_ate = row
+        usuario_id, nome, senha_hash, is_temp, tentativas, bloqueado_ate, senha_temp_expira = row
 
         # Verifica se está bloqueado
         if bloqueado_ate and datetime.now() < bloqueado_ate:
@@ -249,6 +251,12 @@ def login_usuario_completo(email, senha):
 
         # Senha correta
         if bcrypt.checkpw(senha.encode("utf-8"), senha_hash.encode("utf-8")):
+            # Verifica se senha temporaria expirou
+            if is_temp and senha_temp_expira and datetime.now() > senha_temp_expira:
+                cur.execute("UPDATE usuarios SET senha_temporaria = FALSE, senha_temp_expira = NULL WHERE id = %s", (usuario_id,))
+                conn.commit()
+                conn.close()
+                return False, "Sua senha temporária expirou. Solicite uma nova pelo link 'Esqueci minha senha'.", False
             cur.execute("UPDATE usuarios SET tentativas_login = 0, bloqueado_ate = NULL WHERE id = %s", (usuario_id,))
             conn.commit()
             conn.close()
