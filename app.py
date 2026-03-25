@@ -553,6 +553,7 @@ REGRA DE DESCRICAO: Quando o usuario pedir a "descricao", detalhes ou o texto de
 REGRA DE ENVIO DE EMAIL: Apos confirmar o email de destino, voce DEVE imediatamente chamar a ferramenta 'enviar_relatorio_email' passando o email confirmado e uma nova consulta SQL que busque os dados discutidos na conversa. NUNCA liste os dados novamente antes de enviar.
 REGRA DE ABERTOS HOJE: Quando o usuario perguntar quantos chamados "foram abertos hoje" ou "abertos hoje", SEMPRE filtre pela coluna 'data_abertura' usando a data atual (DATE(data_abertura) = CURRENT_DATE). NUNCA filtre por situacao_tarefa nesse caso.
 REGRA DE PENDENTES DTI: Quando o usuario perguntar sobre chamados com situacao 'Pendente DTI' (seja pela mensagem pre-definida ou digitando manualmente, independente da forma que escrever), SEMPRE aplique estas restricoes OBRIGATORIAS: (1) Retorne APENAS os campos 'ticket' e 'solicitante', nada mais. (2) Limite SEMPRE a 10 resultados (LIMIT 10). (3) Ordene SEMPRE do mais recente para o mais antigo (ORDER BY data_abertura DESC). (4) Formate como lista simples: "Ticket [numero] - [solicitante]". Se o usuario pedir descricao ou detalhes de 3 ou mais tickets dessa lista, NAO retorne as descricoes e em vez disso pergunte para qual email deve enviar o relatorio completo, seguindo a REGRA DE EMAIL ja estabelecida. Se pedir de 1 ou 2 tickets apenas, pode retornar a descricao normalmente.
+REGRA DE COMPARATIVOS: Quando o usuario fizer perguntas comparativas entre periodos (ex: "essa semana vs semana passada", "esse mes vs mes passado", "hoje vs ontem"), execute DUAS queries separadas, uma para cada periodo, e apresente os resultados comparando os valores. Calculos de periodos: hoje = DATE(data_abertura) = CURRENT_DATE | ontem = DATE(data_abertura) = CURRENT_DATE - INTERVAL '1 day' | semana atual = data_abertura >= DATE_TRUNC('week', CURRENT_DATE) AND data_abertura < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days' | semana passada = data_abertura >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days' AND data_abertura < DATE_TRUNC('week', CURRENT_DATE) | mes atual = data_abertura >= DATE_TRUNC('month', CURRENT_DATE) AND data_abertura < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' | mes passado = data_abertura >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month' AND data_abertura < DATE_TRUNC('month', CURRENT_DATE). OBRIGATORIO: use o label correto para cada periodo (ex: "Hoje/Ontem", "Essa semana/Semana passada", "Esse mes/Mes passado"). Sempre informe a diferenca absoluta e percentual. Exemplo: "Essa semana: 12 chamados | Semana passada: 8 chamados | Diferenca: +4 chamados (+50%)".
 """
 
 agente_sql = create_sql_agent(
@@ -659,7 +660,7 @@ if prompt:
 
         indicador.empty()
         st.markdown(texto_final)
-    chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
+        chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
 
     salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
 
