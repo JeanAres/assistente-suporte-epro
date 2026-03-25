@@ -382,6 +382,7 @@ REGRA DE FORMATACAO: NUNCA junte resultados na mesma linha. Para listar os ticke
 Ticket [ticket] - [situacao_tarefa] - [solicitante] - Aberto em [DD/MM/YYYY HH:MM:SS]
 REGRA DE DESCRICAO: Quando o usuario pedir a "descricao", detalhes ou o texto de um ticket, OBRIGATORIO trazer o texto INTACTO e COMPLETO do banco de dados. NUNCA resuma, NUNCA corte o texto e NUNCA use reticencias (...).
 REGRA DE ENVIO DE EMAIL: Apos confirmar o email de destino, voce DEVE imediatamente chamar a ferramenta 'enviar_relatorio_email' passando o email confirmado e uma nova consulta SQL que busque os dados discutidos na conversa. NUNCA liste os dados novamente antes de enviar.
+REGRA DE ABERTOS HOJE: Quando o usuario perguntar quantos chamados "foram abertos hoje" ou "abertos hoje", SEMPRE filtre pela coluna 'data_abertura' usando a data atual (DATE(data_abertura) = CURRENT_DATE). NUNCA filtre por situacao_tarefa nesse caso.
 """
 
 agente_sql = create_sql_agent(
@@ -394,7 +395,7 @@ agente_sql = create_sql_agent(
 chat_info = st.session_state.chats[st.session_state.chat_atual]
 
 SUGESTOES = [
-    "Quantos chamados estão abertos hoje?",
+    "Quantos chamados foram abertos hoje?",
     "Quais chamados estão pendentes DTI?",
     "Quais chamados estão agendados?",
     "Quais chamados estão em andamento?",
