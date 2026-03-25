@@ -30,6 +30,15 @@ st.markdown("""
         opacity: 1; 
     }
     [data-testid="stSidebarNav"] {display: none;}
+    button[kind="secondary"]:has(div p:contains("Esqueci minha senha")) {
+        border: none !important;
+        background: transparent !important;
+        color: #888 !important;
+        font-size: 0.8rem !important;
+        text-decoration: underline !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+    }
 
     .saudacao-container {
         display: flex;
@@ -185,9 +194,114 @@ def get_saudacao():
             3: "quinta-feira", 4: "sexta-feira", 5: "sábado", 6: "domingo"}
     return f"Feliz {dias[datetime.now().weekday()]}"
 
+def enviar_senha_temporaria(email_destino):
+    import random, string, smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM usuarios WHERE email = %s", (email_destino,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return False, "E-mail não encontrado."
+        senha_temp = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+        senha_hash = bcrypt.hashpw(senha_temp.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        cur.execute("UPDATE usuarios SET senha = %s, senha_temporaria = TRUE WHERE email = %s", (senha_hash, email_destino))
+        conn.commit()
+        conn.close()
+        remetente = st.secrets["EMAIL_REMETENTE"]
+        senha_app = st.secrets["SENHA_APP_EMAIL"]
+        mensagem = MIMEMultipart()
+        mensagem["From"] = remetente
+        mensagem["To"] = email_destino
+        mensagem["Subject"] = "E-Pro Agent - Senha Temporária"
+        corpo = f"Olá,\n\nSua senha temporária é: {senha_temp}\n\nAo acessar o sistema, você será solicitado a cadastrar uma nova senha.\n\nAtenciosamente,\nE-Pro Agent"
+        mensagem.attach(MIMEText(corpo, "plain", "utf-8"))
+        servidor = smtplib.SMTP("smtp.gmail.com", 587)
+        servidor.starttls()
+        servidor.login(remetente, senha_app)
+        servidor.send_message(mensagem)
+        servidor.quit()
+        return True, "Senha temporária enviada para seu e-mail!"
+    except Exception as e:
+        return False, f"Erro ao enviar e-mail: {e}"
+
+def login_usuario_completo(email, senha):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id, nome, senha, senha_temporaria FROM usuarios WHERE email = %s", (email,))
+        row = cur.fetchone()
+        conn.close()
+        if row and bcrypt.checkpw(senha.encode("utf-8"), row[2].encode("utf-8")):
+            return True, {"id": row[0], "nome": row[1], "email": email}, row[3]
+        return False, "E-mail ou senha incorretos.", False
+    except Exception as e:
+        return False, f"Erro ao fazer login: {e}", False
+
+def trocar_senha_temporaria(usuario_id, nova_senha):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        nova_hash = bcrypt.hashpw(nova_senha.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        cur.execute("UPDATE usuarios SET senha = %s, senha_temporaria = FALSE WHERE id = %s", (nova_hash, usuario_id))
+        conn.commit()
+        conn.close()
+        return True, "Senha definida com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao salvar senha: {e}"
+
+@st.dialog("Esqueceu a senha?")
+def dialog_recuperar_senha():
+    st.caption("Informe seu e-mail cadastrado e enviaremos uma senha temporária.")
+    email_rec = st.text_input("E-mail", key="dialog_email_rec")
+    if st.button("Enviar senha temporária", use_container_width=True, type="primary"):
+        if not email_rec:
+            st.error("Informe seu e-mail.")
+        else:
+            ok, msg = enviar_senha_temporaria(email_rec)
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
 # --- TELA DE LOGIN / CADASTRO ---
 if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
+
+if "trocar_senha_temp" not in st.session_state:
+    st.session_state.trocar_senha_temp = None
+
+# --- TELA DE TROCA DE SENHA TEMPORARIA ---
+if st.session_state.trocar_senha_temp:
+    u = st.session_state.trocar_senha_temp
+    st.title("E-Pro Agent")
+    st.warning("Você está usando uma senha temporária. Cadastre uma nova senha para continuar.")
+    nova_senha_temp = st.text_input("Nova senha", type="password", key="nova_senha_temp")
+    confirma_senha_temp = st.text_input("Confirmar nova senha", type="password", key="confirma_senha_temp")
+    if st.button("Salvar e entrar", use_container_width=True, type="primary"):
+        if not nova_senha_temp or not confirma_senha_temp:
+            st.error("Preencha todos os campos.")
+        elif nova_senha_temp != confirma_senha_temp:
+            st.error("As senhas não coincidem.")
+        elif len(nova_senha_temp) < 6:
+            st.error("A senha deve ter pelo menos 6 caracteres.")
+        else:
+            ok, msg = trocar_senha_temporaria(u["id"], nova_senha_temp)
+            if ok:
+                st.session_state.trocar_senha_temp = None
+                st.session_state.usuario_logado = u
+                st.session_state.chats = carregar_chats(u["email"])
+                st.session_state.chat_atual = None
+                st.session_state.pagina_perfil = False
+                st.session_state.prompt_pendente = None
+                st.session_state._iniciar_nova_conversa = True
+                st.rerun()
+            else:
+                st.error(msg)
+    st.stop()
 
 if st.session_state.usuario_logado is None:
     st.title("E-Pro Agent")
@@ -197,16 +311,27 @@ if st.session_state.usuario_logado is None:
         st.subheader("Login")
         email_login = st.text_input("E-mail", key="login_email")
         senha_login = st.text_input("Senha", type="password", key="login_pass")
+        _, col_link = st.columns([0.65, 0.35])
+        st.markdown('<style>.login-link-col button { border: none !important; background: transparent !important; box-shadow: none !important; color: #888 !important; font-size: 0.8rem !important; text-decoration: underline !important; padding: 0 !important; }</style>', unsafe_allow_html=True)
+        with col_link:
+            st.markdown('<div class="login-link-col">', unsafe_allow_html=True)
+            if st.button("Esqueci minha senha", use_container_width=True, key="btn_esqueceu"):
+                dialog_recuperar_senha()
+            st.markdown('</div>', unsafe_allow_html=True)
         if st.button("Entrar", use_container_width=True, type="primary"):
-            ok, resultado = login_usuario(email_login, senha_login)
+            ok, resultado, is_temp = login_usuario_completo(email_login, senha_login)
             if ok:
-                st.session_state.usuario_logado = resultado
-                st.session_state.chats = carregar_chats(resultado["email"])
-                st.session_state.chat_atual = None
-                st.session_state.pagina_perfil = False
-                st.session_state.prompt_pendente = None
-                st.session_state._iniciar_nova_conversa = True
-                st.rerun()
+                if is_temp:
+                    st.session_state.trocar_senha_temp = resultado
+                    st.rerun()
+                else:
+                    st.session_state.usuario_logado = resultado
+                    st.session_state.chats = carregar_chats(resultado["email"])
+                    st.session_state.chat_atual = None
+                    st.session_state.pagina_perfil = False
+                    st.session_state.prompt_pendente = None
+                    st.session_state._iniciar_nova_conversa = True
+                    st.rerun()
             else:
                 st.error(resultado)
 
@@ -318,7 +443,7 @@ with st.sidebar:
         col_ant, col_pag, col_prox = st.columns([0.3, 0.4, 0.3])
         if col_ant.button("←", use_container_width=True, disabled=st.session_state.pagina_chats <= 1):
             st.session_state.pagina_chats -= 1; st.rerun()
-        col_pag.caption(f"{st.session_state.pagina_chats}/{total_paginas}")
+        col_pag.markdown(f"<div style='text-align:center; padding-top:8px; font-size:0.85rem; color:#aaa;'>{st.session_state.pagina_chats}/{total_paginas}</div>", unsafe_allow_html=True)
         if col_prox.button("→", use_container_width=True, disabled=st.session_state.pagina_chats >= total_paginas):
             st.session_state.pagina_chats += 1; st.rerun()
 
