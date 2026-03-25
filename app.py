@@ -7,6 +7,7 @@ import uuid
 import psycopg2
 import json
 import bcrypt
+from datetime import datetime
 
 # --- CONFIGURACAO DA PAGINA ---
 st.set_page_config(page_title="Assistente Epro", layout="wide")
@@ -29,6 +30,21 @@ st.markdown("""
         opacity: 1; 
     }
     [data-testid="stSidebarNav"] {display: none;}
+
+    .saudacao-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 80px 20px 40px 20px;
+        text-align: center;
+    }
+    .saudacao-texto {
+        font-size: 2.4rem;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: inherit;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -164,6 +180,11 @@ def deletar_todos_chats(email):
     except Exception as e:
         st.error(f"Erro ao limpar chats: {e}")
 
+def get_saudacao():
+    dias = {0: "segunda-feira", 1: "terça-feira", 2: "quarta-feira",
+            3: "quinta-feira", 4: "sexta-feira", 5: "sábado", 6: "domingo"}
+    return f"Feliz {dias[datetime.now().weekday()]}"
+
 # --- TELA DE LOGIN / CADASTRO ---
 if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
@@ -183,6 +204,7 @@ if st.session_state.usuario_logado is None:
                 st.session_state.chats = carregar_chats(resultado["email"])
                 st.session_state.chat_atual = None
                 st.session_state.pagina_perfil = False
+                st.session_state.prompt_pendente = None
                 st.rerun()
             else:
                 st.error(resultado)
@@ -215,6 +237,9 @@ if "pagina_perfil" not in st.session_state:
 if "pagina_chats" not in st.session_state:
     st.session_state.pagina_chats = 1
 
+if "prompt_pendente" not in st.session_state:
+    st.session_state.prompt_pendente = None
+
 CHATS_POR_PAGINA = 10
 
 def nova_conversa():
@@ -222,6 +247,7 @@ def nova_conversa():
     st.session_state.chats[id_chat] = {"titulo": "Nova Conversa", "mensagens": [], "fixado": False}
     st.session_state.chat_atual = id_chat
     st.session_state.pagina_perfil = False
+    st.session_state.prompt_pendente = None
 
 if "chats" not in st.session_state:
     st.session_state.chats = carregar_chats(usuario["email"])
@@ -365,16 +391,47 @@ agente_sql = create_sql_agent(
 )
 
 # --- AREA DO CHAT ---
-st.title("Assistente de Suporte Tecnico")
 chat_info = st.session_state.chats[st.session_state.chat_atual]
 
-for msg in chat_info["mensagens"]:
-    avatar = "👤" if msg["role"] == "user" else "🤖"
-    with st.chat_message(msg["role"], avatar=avatar):
-        st.markdown(msg["content"])
+SUGESTOES = [
+    "Quantos chamados estão abertos hoje?",
+    "Quais chamados estão pendentes DTI?",
+    "Quais chamados estão agendados?",
+    "Quais chamados estão em andamento?",
+]
+
+# Saudacao e sugestoes apenas em chats vazios
+if not chat_info["mensagens"]:
+    st.markdown(f"""
+        <div class="saudacao-container">
+            <div class="saudacao-texto">{get_saudacao()}, {usuario['nome'].split()[0]}!</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    for i, sugestao in enumerate(SUGESTOES):
+        col = col1 if i % 2 == 0 else col2
+        if col.button(sugestao, use_container_width=True, key=f"sugestao_{i}"):
+            st.session_state.prompt_pendente = sugestao
+            st.rerun()
+else:
+    for msg in chat_info["mensagens"]:
+        avatar = "👤" if msg["role"] == "user" else "🤖"
+        with st.chat_message(msg["role"], avatar=avatar):
+            st.markdown(msg["content"])
+
+# --- CAPTURA DO PROMPT (digitado ou via sugestao) ---
+prompt_digitado = st.chat_input("Como posso ajudar você hoje?")
+if prompt_digitado:
+    prompt = prompt_digitado
+elif st.session_state.prompt_pendente:
+    prompt = st.session_state.prompt_pendente
+    st.session_state.prompt_pendente = None
+else:
+    prompt = None
 
 # --- PROCESSAMENTO DO CHAT ---
-if prompt := st.chat_input("Pergunte algo..."):
+if prompt:
     chat_info["mensagens"].append({"role": "user", "content": prompt})
     with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
