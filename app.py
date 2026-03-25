@@ -205,6 +205,7 @@ if st.session_state.usuario_logado is None:
                 st.session_state.chat_atual = None
                 st.session_state.pagina_perfil = False
                 st.session_state.prompt_pendente = None
+                st.session_state._iniciar_nova_conversa = True
                 st.rerun()
             else:
                 st.error(resultado)
@@ -252,7 +253,10 @@ def nova_conversa():
 if "chats" not in st.session_state:
     st.session_state.chats = carregar_chats(usuario["email"])
 
-if "chat_atual" not in st.session_state or st.session_state.chat_atual is None:
+if st.session_state.get("_iniciar_nova_conversa"):
+    st.session_state._iniciar_nova_conversa = False
+    nova_conversa()
+elif "chat_atual" not in st.session_state or st.session_state.chat_atual is None:
     if st.session_state.chats:
         st.session_state.chat_atual = list(st.session_state.chats.keys())[0]
     else:
