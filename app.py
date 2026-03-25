@@ -70,6 +70,39 @@ def login_usuario(email, senha):
     except Exception as e:
         return False, f"Erro ao fazer login: {e}"
 
+def atualizar_perfil(usuario_id, novo_nome, novo_email):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE usuarios SET nome = %s, email = %s WHERE id = %s",
+            (novo_nome, novo_email, usuario_id)
+        )
+        conn.commit()
+        conn.close()
+        return True, "Perfil atualizado com sucesso!"
+    except psycopg2.errors.UniqueViolation:
+        return False, "Este e-mail já está em uso por outro usuário."
+    except Exception as e:
+        return False, f"Erro ao atualizar perfil: {e}"
+
+def redefinir_senha(usuario_id, senha_atual, nova_senha):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT senha FROM usuarios WHERE id = %s", (usuario_id,))
+        row = cur.fetchone()
+        if not row or not bcrypt.checkpw(senha_atual.encode("utf-8"), row[0].encode("utf-8")):
+            conn.close()
+            return False, "Senha atual incorreta."
+        nova_hash = bcrypt.hashpw(nova_senha.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        cur.execute("UPDATE usuarios SET senha = %s WHERE id = %s", (nova_hash, usuario_id))
+        conn.commit()
+        conn.close()
+        return True, "Senha alterada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao redefinir senha: {e}"
+
 # --- FUNCOES DE CHAT ---
 def carregar_chats(email):
     try:
@@ -149,6 +182,7 @@ if st.session_state.usuario_logado is None:
                 st.session_state.usuario_logado = resultado
                 st.session_state.chats = carregar_chats(resultado["email"])
                 st.session_state.chat_atual = None
+                st.session_state.pagina_perfil = False
                 st.rerun()
             else:
                 st.error(resultado)
@@ -175,10 +209,14 @@ if st.session_state.usuario_logado is None:
 # --- APP PRINCIPAL (USUARIO LOGADO) ---
 usuario = st.session_state.usuario_logado
 
+if "pagina_perfil" not in st.session_state:
+    st.session_state.pagina_perfil = False
+
 def nova_conversa():
     id_chat = str(uuid.uuid4())
     st.session_state.chats[id_chat] = {"titulo": "Nova Conversa", "mensagens": [], "fixado": False}
     st.session_state.chat_atual = id_chat
+    st.session_state.pagina_perfil = False
 
 if "chats" not in st.session_state:
     st.session_state.chats = carregar_chats(usuario["email"])
@@ -193,8 +231,13 @@ if "chat_atual" not in st.session_state or st.session_state.chat_atual is None:
 with st.sidebar:
     st.markdown("### E-Pro Agent")
     st.caption(f"Olá, **{usuario['nome']}**")
-    if st.button("+ Nova Conversa", use_container_width=True):
+
+    col_nova, col_perfil = st.columns([0.75, 0.25])
+    if col_nova.button("+ Nova Conversa", use_container_width=True):
         nova_conversa(); st.rerun()
+    if col_perfil.button("👤", use_container_width=True, help="Meu Perfil"):
+        st.session_state.pagina_perfil = True; st.rerun()
+
     st.divider()
     st.caption("Conversas Recentes")
 
@@ -213,7 +256,9 @@ with st.sidebar:
         tipo = "primary" if id_chat == st.session_state.chat_atual else "secondary"
 
         if col_btn.button(label, key=f"btn_{id_chat}", use_container_width=True, type=tipo):
-            st.session_state.chat_atual = id_chat; st.rerun()
+            st.session_state.chat_atual = id_chat
+            st.session_state.pagina_perfil = False
+            st.rerun()
 
         with col_menu.popover("⋮"):
             if st.button("Fixar / Desafixar", key=f"fix_{id_chat}", use_container_width=True):
@@ -239,6 +284,43 @@ with st.sidebar:
         st.session_state.chats = {}
         st.session_state.chat_atual = None
         st.rerun()
+
+# --- PAGINA DE PERFIL ---
+if st.session_state.pagina_perfil:
+    st.title("Meu Perfil")
+
+    st.subheader("Dados cadastrais")
+    novo_nome = st.text_input("Nome completo", value=usuario["nome"])
+    novo_email = st.text_input("E-mail", value=usuario["email"])
+    if st.button("Salvar alterações", type="primary"):
+        ok, msg = atualizar_perfil(usuario["id"], novo_nome, novo_email)
+        if ok:
+            st.session_state.usuario_logado["nome"] = novo_nome
+            st.session_state.usuario_logado["email"] = novo_email
+            st.success(msg)
+        else:
+            st.error(msg)
+
+    st.divider()
+    st.subheader("Redefinir senha")
+    senha_atual = st.text_input("Senha atual", type="password", key="senha_atual")
+    nova_senha = st.text_input("Nova senha", type="password", key="nova_senha")
+    confirma_senha = st.text_input("Confirmar nova senha", type="password", key="confirma_senha")
+    if st.button("Alterar senha", type="primary"):
+        if not all([senha_atual, nova_senha, confirma_senha]):
+            st.error("Preencha todos os campos.")
+        elif nova_senha != confirma_senha:
+            st.error("As senhas não coincidem.")
+        else:
+            ok, msg = redefinir_senha(usuario["id"], senha_atual, nova_senha)
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
+    if st.button("← Voltar ao chat"):
+        st.session_state.pagina_perfil = False; st.rerun()
+    st.stop()
 
 # --- AGENTE E DB ---
 db = SQLDatabase.from_uri(st.secrets["NEON_DB_URL"].replace("postgres://", "postgresql://", 1), max_string_length=3000)
