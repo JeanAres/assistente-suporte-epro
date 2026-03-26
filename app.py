@@ -7,7 +7,10 @@ import uuid
 import psycopg2
 import json
 import bcrypt
-from datetime import datetime
+import random
+import string
+import smtplib
+from datetime import datetime, timedelta
 
 # --- CONFIGURACAO DA PAGINA ---
 st.set_page_config(page_title="Assistente Epro", layout="wide")
@@ -81,19 +84,6 @@ def cadastrar_usuario(nome, senha, email):
         return False, "Este e-mail já está cadastrado."
     except Exception as e:
         return False, f"Erro ao cadastrar: {e}"
-
-def login_usuario(email, senha):
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT id, nome, senha FROM usuarios WHERE email = %s", (email,))
-        row = cur.fetchone()
-        conn.close()
-        if row and bcrypt.checkpw(senha.encode("utf-8"), row[2].encode("utf-8")):
-            return True, {"id": row[0], "nome": row[1], "email": email}
-        return False, "E-mail ou senha incorretos."
-    except Exception as e:
-        return False, f"Erro ao fazer login: {e}"
 
 def atualizar_perfil(usuario_id, novo_nome, novo_email):
     try:
@@ -195,7 +185,6 @@ def get_saudacao():
     return f"Feliz {dias[datetime.now().weekday()]}"
 
 def enviar_senha_temporaria(email_destino):
-    import random, string, smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
     try:
@@ -206,7 +195,6 @@ def enviar_senha_temporaria(email_destino):
         if not row:
             conn.close()
             return False, "E-mail não encontrado."
-        from datetime import timedelta
         senha_temp = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
         senha_hash = bcrypt.hashpw(senha_temp.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
         expira_em = datetime.now() + timedelta(hours=24)
@@ -265,7 +253,6 @@ def login_usuario_completo(email, senha):
         # Senha errada — incrementa tentativas
         novas_tentativas = (tentativas or 0) + 1
         if novas_tentativas >= 5:
-            from datetime import timedelta
             bloqueio = datetime.now() + timedelta(minutes=30)
             cur.execute("UPDATE usuarios SET tentativas_login = %s, bloqueado_ate = %s WHERE id = %s", (novas_tentativas, bloqueio, usuario_id))
             conn.commit()
