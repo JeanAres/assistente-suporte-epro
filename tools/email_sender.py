@@ -7,6 +7,10 @@ from langchain.tools import tool
 import pandas as pd
 import psycopg2
 import io
+import time
+
+# Controle global para evitar envios duplicados
+_ultimo_envio = {}
 
 @tool
 def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
@@ -17,15 +21,23 @@ def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
     O email_destino deve ser fornecido obrigatoriamente pelo usuario na conversa.
     NUNCA passe os dados brutos, passe apenas a string da consulta SQL.
     """
-    
+    global _ultimo_envio
+
     # --- TRAVA DE SEGURANCA: VALIDACAO DE EMAIL ---
     placeholders = ["example.com", "seu_email", "email_aqui", "user@"]
     if any(p in email_destino.lower() for p in placeholders) or "@" not in email_destino:
         return "ERRO: O email fornecido parece ser ficticio ou invalido. PARE a execucao e pergunte o email real do usuario agora."
 
     # --- TRAVA DE SEGURANCA: VALIDACAO DE SQL ---
-    if not consulta_sql.strip().upper().startswith("SELECT"):
+    if not consulta_sql.strip().lstrip('\n\r\t ').upper().startswith("SELECT"):
         return "ERRO: Apenas consultas SELECT sao permitidas para gerar relatorios."
+
+    # --- TRAVA CONTRA ENVIO DUPLICADO ---
+    agora = time.time()
+    chave = f"{email_destino}_{consulta_sql[:50]}"
+    if agora - _ultimo_envio.get(chave, 0) < 15:
+        return f"Sucesso total: O relatorio ja foi enviado para {email_destino}. Tarefa concluida, informe o usuario."
+    _ultimo_envio[chave] = agora
 
     try:
         # 1. Conecta no banco de dados e executa a query recebida da IA
