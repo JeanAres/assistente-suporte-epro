@@ -52,7 +52,15 @@ def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
         if df.empty:
             return "A consulta nao retornou nenhum chamado. O e-mail nao foi enviado. Informe isso ao usuario."
 
-        # 2. Converte o resultado para um CSV em memoria
+        # 2. Remove colunas desnecessarias e formata datas
+        colunas_remover = [c for c in ['origem', 'grupo', 'tipo_demanda'] if c in df.columns]
+        if colunas_remover:
+            df = df.drop(columns=colunas_remover)
+
+        for col in df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, UTC]']).columns:
+            df[col] = df[col].dt.strftime('%d/%m/%Y %H:%M:%S')
+
+        # 3. Converte o resultado para um CSV em memoria
         csv_buffer = io.StringIO()
         df.to_csv(csv_buffer, index=False, sep=';', encoding='utf-8-sig')
         csv_bytes = csv_buffer.getvalue().encode('utf-8-sig')
