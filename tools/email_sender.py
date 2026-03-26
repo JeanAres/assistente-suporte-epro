@@ -7,7 +7,6 @@ from langchain.tools import tool
 import pandas as pd
 import psycopg2
 import io
-import re
 
 @tool
 def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
@@ -20,16 +19,17 @@ def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
     """
     
     # --- TRAVA DE SEGURANCA: VALIDACAO DE EMAIL ---
-    # Lista de termos que indicam que a IA está inventando um email
     placeholders = ["example.com", "seu_email", "email_aqui", "user@"]
     if any(p in email_destino.lower() for p in placeholders) or "@" not in email_destino:
         return "ERRO: O email fornecido parece ser ficticio ou invalido. PARE a execucao e pergunte o email real do usuario agora."
 
+    # --- TRAVA DE SEGURANCA: VALIDACAO DE SQL ---
+    if not consulta_sql.strip().upper().startswith("SELECT"):
+        return "ERRO: Apenas consultas SELECT sao permitidas para gerar relatorios."
+
     try:
         # 1. Conecta no banco de dados e executa a query recebida da IA
         db_url = st.secrets["NEON_DB_URL"]
-        
-        # O SQLAlchemy/Pandas as vezes prefere a URL formatada
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
             
@@ -63,14 +63,13 @@ def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
         anexo.add_header('Content-Disposition', 'attachment', filename='relatorio_chamados.csv')
         mensagem.attach(anexo)
 
-        # 6. Disparo via SMTP
-        servidor = smtplib.SMTP("smtp.gmail.com", 587)
+        # 6. Disparo via SMTP com timeout de 10 segundos
+        servidor = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
         servidor.starttls()
         servidor.login(remetente, senha)
         servidor.send_message(mensagem)
         servidor.quit()
 
-        # Retorno especifico para ajudar a IA a encerrar o loop
         return f"Sucesso total: O relatorio com {len(df)} chamados foi enviado para {email_destino}. Tarefa concluida, informe o usuario."
 
     except Exception as e:
