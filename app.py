@@ -559,7 +559,8 @@ REGRA DE COMPARATIVOS: Quando o usuario fizer perguntas comparativas entre perio
 agente_sql = create_sql_agent(
     llm=llm, db=db, agent_type="tool-calling", verbose=True,
     prefix=PREFIXO_SISTEMA, extra_tools=[enviar_relatorio_email],
-    max_iterations=10, handle_parsing_errors=True
+    max_iterations=10, handle_parsing_errors=True,
+    return_intermediate_steps=True
 )
 
 # --- AREA DO CHAT ---
@@ -629,6 +630,23 @@ if prompt:
 
         historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-6:]])
 
+        # --- ROTEADOR DE EMAIL: intercepta pedido antes de chamar o agente ---
+        palavras_envio = ["enviar", "manda", "mande", "relatório", "relatorio", "report"]
+        palavras_confirmacao = ["sim", "pode", "isso", "esse mesmo", "pode enviar", "outro", "@"]
+        ultimo_bot = next((m['content'] for m in reversed(chat_info["mensagens"][:-1]) if m['role'] == "assistant"), "")
+        ja_perguntou_email = "posso enviar para o e-mail" in ultimo_bot.lower()
+        prompt_lower = prompt.lower()
+        usuario_confirmou = any(p in prompt_lower for p in palavras_confirmacao) and not any(p in prompt_lower for p in palavras_envio)
+        pedido_envio = any(p in prompt_lower for p in palavras_envio)
+
+        if pedido_envio and not ja_perguntou_email and not usuario_confirmou:
+            texto_final = f"Posso enviar para o e-mail **{usuario['email']}** ou gostaria que fosse enviado para outro endereço?"
+            indicador.empty()
+            st.markdown(texto_final)
+            chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
+            salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
+            st.stop()
+
         prompt_classificador = f"""
         Analise a conversa recente: [{historico_contexto}]
         A última mensagem do usuario requer buscar dados, continuacao sobre um ticket/chamado, detalhes, relatorios ou confirmacao de envio de email? Responda APENAS 'SQL'.
@@ -645,16 +663,23 @@ if prompt:
                 input_final = f"HISTORICO:\n{historico}\n\nPERGUNTA: {prompt}\n(Vá direto ao ponto e use SQL rapido)"
 
                 res = agente_sql.invoke({"input": input_final})
-                texto_final = res["output"]
 
-                if "enviar_relatorio_email" in str(res) and "Sucesso" in str(res):
+                steps_str = str(res.get("intermediate_steps", ""))
+                email_enviado = "Sucesso total" in steps_str or "ja foi enviado" in steps_str
+
+                if email_enviado:
                     texto_final = "E-mail enviado, favor verificar sua caixa de emails"
-                elif "Agent stopped due to max iterations" in texto_final:
-                    texto_final = "A consulta ficou muito complexa e eu precisei parar. Pode tentar fazer a pergunta de uma forma mais simples?"
+                else:
+                    texto_final = res["output"]
+                    if "Agent stopped due to max iterations" in texto_final:
+                        texto_final = "A consulta ficou muito complexa e eu precisei parar. Pode tentar fazer a pergunta de uma forma mais simples?"
 
             except Exception as e:
-                if "max iterations" in str(e).lower():
-                    texto_final = "A consulta demorou demais ou o e-mail foi enviado com sucesso em segundo plano."
+                steps_str = str(e)
+                if "Sucesso total" in steps_str or "ja foi enviado" in steps_str:
+                    texto_final = "E-mail enviado, favor verificar sua caixa de emails"
+                elif "max iterations" in steps_str.lower():
+                    texto_final = "A consulta demorou demais. Pode tentar reformular a pergunta?"
                 else:
                     texto_final = "Tive um problema tecnico ao buscar esses dados. Pode tentar reformular a pergunta?"
 
