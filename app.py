@@ -690,6 +690,65 @@ if prompt:
         historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-12:]])
         prompt_lower = prompt.lower()
 
+        # --- ROTEADOR DE TICKETS SIMILARES ---
+        palavras_similar = ["parecido", "similar", "relacionado", "mesmo assunto", "parecida", "similares", "relacionados", "descrição parecida", "descricao parecida"]
+        import re as _re
+        ticket_ref = _re.search(r'\b(\d{5,6})\b', prompt)
+        if ticket_ref and any(p in prompt_lower for p in palavras_similar):
+            num_ticket = ticket_ref.group(1)
+            try:
+                conn = get_conn()
+                cur = conn.cursor()
+                cur.execute("SELECT descricao FROM chamados WHERE ticket = %s", (num_ticket,))
+                row = cur.fetchone()
+                if not row or not row[0]:
+                    conn.close()
+                    texto_final = f"Não encontrei o ticket {num_ticket} ou ele não possui descrição."
+                else:
+                    descricao_modelo = row[0]
+                    # Extrai frase-chave específica via LLM
+                    p_kw = f"Qual é o problema técnico específico descrito neste chamado de suporte? Responda com uma frase curta de 2 a 4 palavras que identifique o problema central, sem palavras genéricas como 'bug', 'erro', 'sistema', 'solicito'. Descrição: '{descricao_modelo[:500]}'. Responda APENAS a frase, sem pontuação."
+                    frase_chave = llm.invoke(p_kw).content.strip()
+
+                    # Busca com ILIKE usando a frase-chave
+                    params_count = [f"%{frase_chave}%", num_ticket]
+                    cur.execute("""
+                        SELECT COUNT(*) FROM chamados
+                        WHERE descricao ILIKE %s AND ticket != %s
+                    """, params_count)
+                    total = cur.fetchone()[0]
+
+                    cur.execute("""
+                        SELECT ticket, solicitante, descricao FROM chamados
+                        WHERE descricao ILIKE %s AND ticket != %s
+                        ORDER BY data_abertura DESC
+                    """, params_count)
+                    similares = cur.fetchall()
+                    conn.close()
+
+                    if total == 0:
+                        texto_final = f"Não encontrei outros chamados com descrição parecida com o ticket {num_ticket}."
+                    elif total < 10:
+                        linhas = []
+                        for r in similares:
+                            t, sol, desc = r
+                            linhas.append(f"**Ticket {t}** - {sol}\n{desc or ''}")
+                        texto_final = "\n\n".join(linhas)
+                    else:
+                        linhas = []
+                        for r in similares[:10]:
+                            t, sol, desc = r
+                            linhas.append(f"**Ticket {t}** - {sol}\n{desc or ''}")
+                        lista = "\n\n".join(linhas)
+                        texto_final = f"{lista}\n\nEstes são os 10 chamados relacionados ao ticket {num_ticket} mais recentes, mas temos um total de **{total}** chamados relacionados. Posso enviar um e-mail contendo todos para **{usuario['email']}** ou gostaria que fosse enviado para outro endereço?"
+            except Exception as e:
+                texto_final = "Tive um problema ao buscar tickets similares. Tente novamente."
+            indicador.empty()
+            st.markdown(texto_final)
+            chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
+            salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
+            st.rerun()
+
         # --- ROTEADOR DE CHAMADOS HOJE ---
         triggers_hoje = ["foram abertos hoje", "abertos hoje", "abertos hoje?", "chamados hoje", "chamados de hoje"]
         if any(t in prompt_lower for t in triggers_hoje):
