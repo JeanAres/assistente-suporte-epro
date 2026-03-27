@@ -730,8 +730,10 @@ if prompt:
             indicador.empty()
             st.markdown(texto_final)
             chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
+            if chat_info["titulo"] == "Nova Conversa":
+                chat_info["titulo"] = "Chamados de hoje"
             salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
-            st.stop()
+            st.rerun()
 
         # --- ROTEADOR DE GRAFICOS ---
         tipo_grafico = next((v for k, v in GRAFICOS_TRIGGERS.items() if k in prompt_lower), None)
@@ -861,16 +863,23 @@ if prompt:
 
     # --- LOGICA DE TITULO ---
     if chat_info["titulo"] == "Nova Conversa" and len(chat_info["mensagens"]) >= 2:
-        try:
-            p_resumo = f"Extraia o assunto principal desta frase em 2 ou 3 palavras: '{prompt}'. Ex: 'Chamados Paulo Basso'. Responda APENAS as palavras, sem pontos ou aspas."
-            resumo = llm.invoke(p_resumo).content.strip().replace('"', '').replace('.', '')
+        titulos_fixos = {
+            "Quantos chamados foram abertos hoje?": "Chamados de hoje",
+            "Resumo dos chamados Pendentes DTI": "Resumo Pendentes DTI",
+        }
+        if prompt in titulos_fixos:
+            chat_info["titulo"] = titulos_fixos[prompt]
+        else:
+            try:
+                p_resumo = f"Extraia o assunto principal desta frase em 2 ou 3 palavras: '{prompt}'. Ex: 'Chamados Paulo Basso'. Responda APENAS as palavras, sem pontos ou aspas."
+                resumo = llm.invoke(p_resumo).content.strip().replace('"', '').replace('.', '')
 
-            if len(resumo) < 3 or "conversa" in resumo.lower():
-                chat_info["titulo"] = prompt[:25].capitalize()
-            else:
-                chat_info["titulo"] = resumo
-        except:
-            chat_info["titulo"] = prompt[:20]
+                if len(resumo) < 3 or "conversa" in resumo.lower():
+                    chat_info["titulo"] = prompt[:25].capitalize()
+                else:
+                    chat_info["titulo"] = resumo
+            except:
+                chat_info["titulo"] = prompt[:20]
 
         salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
         st.rerun()
