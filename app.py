@@ -10,6 +10,7 @@ import bcrypt
 import random
 import string
 import smtplib
+import plotly.express as px
 from datetime import datetime, timedelta
 
 # --- CONFIGURACAO DA PAGINA ---
@@ -124,7 +125,7 @@ def carregar_chats(email):
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, titulo, fixado, mensagens FROM historico_chats WHERE username = %s ORDER BY atualizado_em DESC",
+            "SELECT id, titulo, fixado, mensagens, atualizado_em FROM historico_chats WHERE username = %s ORDER BY atualizado_em DESC",
             (email,)
         )
         rows = cur.fetchall()
@@ -134,7 +135,8 @@ def carregar_chats(email):
             chats[row[0]] = {
                 "titulo": row[1],
                 "fixado": row[2],
-                "mensagens": row[3] if isinstance(row[3], list) else json.loads(row[3])
+                "mensagens": row[3] if isinstance(row[3], list) else json.loads(row[3]),
+                "atualizado_em": row[4].isoformat() if row[4] else ""
             }
         return chats
     except Exception as e:
@@ -156,6 +158,7 @@ def salvar_chat(id_chat, info, email):
         """, (id_chat, info["titulo"], info["fixado"], json.dumps(info["mensagens"]), email))
         conn.commit()
         conn.close()
+        info["atualizado_em"] = datetime.now().isoformat()
     except Exception as e:
         st.error(f"Erro ao salvar chat: {e}")
 
@@ -430,7 +433,10 @@ with st.sidebar:
 
     ids_ordenados = sorted(
         st.session_state.chats.keys(),
-        key=lambda x: (st.session_state.chats[x].get("fixado", False), x),
+        key=lambda x: (
+            st.session_state.chats[x].get("fixado", False),
+            st.session_state.chats[x].get("atualizado_em", "")
+        ),
         reverse=True
     )
     ids_com_mensagem = [i for i in ids_ordenados if st.session_state.chats[i]["mensagens"]]
@@ -539,7 +545,7 @@ Ticket [ticket] - [situacao_tarefa] - [solicitante] - Aberto em [DD/MM/YYYY HH:M
 REGRA DE DESCRICAO: Quando o usuario pedir a "descricao", detalhes ou o texto de um ticket, OBRIGATORIO trazer o texto INTACTO e COMPLETO do banco de dados. NUNCA resuma, NUNCA corte o texto e NUNCA use reticencias (...).
 REGRA DE ENVIO DE EMAIL: Apos confirmar o email de destino, voce DEVE imediatamente chamar a ferramenta 'enviar_relatorio_email' passando o email confirmado e uma nova consulta SQL que busque os dados discutidos na conversa. NUNCA liste os dados novamente antes de enviar.
 REGRA DE ABERTOS HOJE: Quando o usuario perguntar quantos chamados "foram abertos hoje" ou "abertos hoje", SEMPRE filtre pela coluna 'data_abertura' usando a data atual (DATE(data_abertura) = CURRENT_DATE). NUNCA filtre por situacao_tarefa nesse caso.
-REGRA DE PENDENTES DTI: Quando o usuario perguntar sobre chamados com situacao 'Pendente DTI' (seja pela mensagem pre-definida ou digitando manualmente, independente da forma que escrever), SEMPRE aplique estas restricoes OBRIGATORIAS: (1) Retorne APENAS os campos 'ticket' e 'solicitante', nada mais. (2) Limite SEMPRE a 10 resultados (LIMIT 10). (3) Ordene SEMPRE do mais recente para o mais antigo (ORDER BY data_abertura DESC). (4) Formate como lista simples: "Ticket [numero] - [solicitante]". Se o usuario pedir descricao ou detalhes de 3 ou mais tickets dessa lista, NAO retorne as descricoes e em vez disso pergunte para qual email deve enviar o relatorio completo, seguindo a REGRA DE EMAIL ja estabelecida. Se pedir de 1 ou 2 tickets apenas, pode retornar a descricao normalmente.
+REGRA DE PENDENTES DTI: Quando o usuario perguntar sobre chamados com situacao 'Pendente DTI' (seja pela mensagem pre-definida ou digitando manualmente, independente da forma que escrever), SEMPRE aplique estas restricoes OBRIGATORIAS: (1) Retorne APENAS os campos 'ticket', 'solicitante' e 'data_abertura', nada mais. (2) Limite SEMPRE a 10 resultados (LIMIT 10). (3) Ordene SEMPRE do mais recente para o mais antigo (ORDER BY data_abertura DESC). (4) Formate como lista simples: "Ticket [numero] - [solicitante] - Aberto em [DD/MM/YYYY HH:MM:SS]". (5) OBRIGATORIO: apos listar os tickets, adicione a mensagem: "Estes são os últimos 10 chamados abertos que foram classificados como Pendente DTI.". Se o usuario pedir descricao ou detalhes de 3 ou mais tickets dessa lista, NAO retorne as descricoes e em vez disso pergunte para qual email deve enviar o relatorio completo, seguindo a REGRA DE EMAIL ja estabelecida. Se pedir de 1 ou 2 tickets apenas, pode retornar a descricao normalmente.
 REGRA DE COMPARATIVOS: Quando o usuario fizer perguntas comparativas entre periodos (ex: "essa semana vs semana passada", "esse mes vs mes passado", "hoje vs ontem"), execute DUAS queries separadas, uma para cada periodo, e apresente os resultados comparando os valores. Calculos de periodos: hoje = DATE(data_abertura) = CURRENT_DATE | ontem = DATE(data_abertura) = CURRENT_DATE - INTERVAL '1 day' | semana atual = data_abertura >= DATE_TRUNC('week', CURRENT_DATE) AND data_abertura < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days' | semana passada = data_abertura >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days' AND data_abertura < DATE_TRUNC('week', CURRENT_DATE) | mes atual = data_abertura >= DATE_TRUNC('month', CURRENT_DATE) AND data_abertura < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' | mes passado = data_abertura >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month' AND data_abertura < DATE_TRUNC('month', CURRENT_DATE). OBRIGATORIO: use o label correto para cada periodo (ex: "Hoje/Ontem", "Essa semana/Semana passada", "Esse mes/Mes passado"). Sempre informe a diferenca absoluta e percentual. Exemplo: "Essa semana: 12 chamados | Semana passada: 8 chamados | Diferenca: +4 chamados (+50%)".
 REGRA DE BUSCA POR ASSUNTO: Quando o usuario perguntar sobre chamados que tratam de um assunto, tema ou palavra especifica (ex: "chamados sobre agenda", "chamados que falam sobre DOAL", "tickets sobre erro"), siga OBRIGATORIAMENTE este fluxo: ETAPA 1 - Execute APENAS um SELECT COUNT(*) FROM chamados WHERE descricao ILIKE '%palavra%' e informe somente o numero encontrado. PROIBIDO retornar qualquer outro dado ou campo nesta etapa. PROIBIDO chamar enviar_relatorio_email nesta etapa. ETAPA 2 - Apos informar a contagem, pergunte se o usuario deseja receber o relatorio por e-mail seguindo a REGRA DE EMAIL. Somente apos confirmacao do usuario chame enviar_relatorio_email com SELECT * FROM chamados WHERE descricao ILIKE '%palavra%' ORDER BY data_abertura DESC. Se o usuario recusar, responda "Tudo bem! Se precisar de mais alguma informacao, estou por aqui." e PARE.
 """
@@ -554,15 +560,71 @@ agente_sql = create_sql_agent(
 # --- AREA DO CHAT ---
 chat_info = st.session_state.chats[st.session_state.chat_atual]
 
+# --- FUNCOES DE GRAFICOS ---
+def gerar_grafico_status():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT situacao_tarefa, COUNT(*) FROM chamados GROUP BY situacao_tarefa ORDER BY COUNT(*) DESC")
+        rows = cur.fetchall()
+        conn.close()
+        labels = [r[0] for r in rows]
+        values = [r[1] for r in rows]
+        fig = px.pie(names=labels, values=values, title="Chamados por Status",
+                     color_discrete_sequence=px.colors.qualitative.Set3)
+        fig.update_traces(
+            textposition='inside',
+            textinfo='percent+label',
+            hovertemplate='Quantidade: %{value}<extra></extra>'
+        )
+        fig.update_layout(showlegend=True, height=450)
+        return fig
+    except Exception as e:
+        return None
+
+def gerar_grafico_periodo():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DATE_TRUNC('month', data_abertura) as mes, COUNT(*) as total
+            FROM chamados
+            WHERE data_abertura >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
+            GROUP BY mes ORDER BY mes
+        """)
+        rows = cur.fetchall()
+        conn.close()
+        meses = [r[0].strftime('%m/%Y') for r in rows]
+        totais = [r[1] for r in rows]
+        fig = px.bar(x=meses, y=totais, title="Chamados por Mês (últimos 6 meses)",
+                     labels={"x": "Mês", "y": "Quantidade"},
+                     color=totais, color_continuous_scale="Blues")
+        fig.update_traces(hovertemplate='Quantidade: %{y}<extra></extra>')
+        fig.update_layout(height=450, showlegend=False, coloraxis_showscale=False)
+        return fig
+    except Exception as e:
+        return None
+
 SUGESTOES = [
     "Quantos chamados foram abertos hoje?",
     "Resumo dos chamados Pendentes DTI",
-    "Quais chamados estão agendados?",
-    "Quais chamados estão em andamento?",
+    "Gráfico de chamados por status",
+    "Gráfico de chamados por período",
 ]
 
-# Saudacao e sugestoes apenas em chats vazios
-if not chat_info["mensagens"]:
+GRAFICOS_TRIGGERS = {
+    "gráfico de chamados por status": "status",
+    "grafico de chamados por status": "status",
+    "gráfico por status": "status",
+    "grafico por status": "status",
+    "gráfico de chamados por período": "periodo",
+    "grafico de chamados por periodo": "periodo",
+    "gráfico por período": "periodo",
+    "grafico por periodo": "periodo",
+}
+
+# Saudacao e sugestoes apenas em chats vazios e sem prompt pendente
+if not chat_info["mensagens"] and not st.session_state.prompt_pendente:
     st.markdown(f"""
         <div class="saudacao-container">
             <div class="saudacao-texto">{get_saudacao()}, {usuario['nome'].split()[0]}!</div>
@@ -579,7 +641,16 @@ else:
     for msg in chat_info["mensagens"]:
         avatar = "👤" if msg["role"] == "user" else "🤖"
         with st.chat_message(msg["role"], avatar=avatar):
-            st.markdown(msg["content"])
+            if msg.get("tipo") == "grafico_status":
+                fig = gerar_grafico_status()
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+            elif msg.get("tipo") == "grafico_periodo":
+                fig = gerar_grafico_periodo()
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.markdown(msg["content"])
 
 # --- CAPTURA DO PROMPT (digitado ou via sugestao) ---
 prompt_digitado = st.chat_input("Como posso ajudar você hoje?")
@@ -617,6 +688,34 @@ if prompt:
         """, unsafe_allow_html=True)
 
         historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-12:]])
+        prompt_lower = prompt.lower()
+
+        # --- ROTEADOR DE GRAFICOS ---
+        tipo_grafico = next((v for k, v in GRAFICOS_TRIGGERS.items() if k in prompt_lower), None)
+        if tipo_grafico:
+            indicador.empty()
+            if tipo_grafico == "status":
+                fig = gerar_grafico_status()
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+                    chat_info["mensagens"].append({"role": "assistant", "content": "Gráfico de chamados por status", "tipo": "grafico_status"})
+                    if chat_info["titulo"] == "Nova Conversa":
+                        chat_info["titulo"] = "Gráfico por status"
+                else:
+                    st.markdown("Não consegui gerar o gráfico. Tente novamente.")
+                    chat_info["mensagens"].append({"role": "assistant", "content": "Não consegui gerar o gráfico."})
+            elif tipo_grafico == "periodo":
+                fig = gerar_grafico_periodo()
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+                    chat_info["mensagens"].append({"role": "assistant", "content": "Gráfico de chamados por período", "tipo": "grafico_periodo"})
+                    if chat_info["titulo"] == "Nova Conversa":
+                        chat_info["titulo"] = "Gráfico por período"
+                else:
+                    st.markdown("Não consegui gerar o gráfico. Tente novamente.")
+                    chat_info["mensagens"].append({"role": "assistant", "content": "Não consegui gerar o gráfico."})
+            salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
+            st.rerun()
 
         # --- ROTEADOR DE EMAIL: intercepta pedido antes de chamar o agente ---
         palavras_envio = ["enviar", "manda", "mande", "relatório", "relatorio", "report"]
@@ -626,7 +725,6 @@ if prompt:
         ultimo_bot = next((m['content'] for m in reversed(chat_info["mensagens"][:-1]) if m['role'] == "assistant"), "")
         ja_perguntou_email = "posso enviar para o e-mail" in ultimo_bot.lower()
         ultimo_bot_foi_contagem = any(x in ultimo_bot.lower() for x in ["chamados que falam", "chamados encontrados", "foram encontrados", "chamados com"])
-        prompt_lower = prompt.lower()
         usuario_recusou = any(p in prompt_lower for p in palavras_recusa)
         usuario_confirmou = any(p in prompt_lower for p in palavras_confirmacao) and not any(p in prompt_lower for p in palavras_envio)
         pedido_envio = any(p in prompt_lower for p in palavras_envio)
