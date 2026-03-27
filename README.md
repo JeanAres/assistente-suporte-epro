@@ -8,17 +8,25 @@ Chatbot inteligente para consulta e gerenciamento de chamados do sistema 4Biz, c
 
 - Login e cadastro de usuários com senha criptografada
 - Recuperação de senha via e-mail com senha temporária e troca obrigatória no primeiro acesso
-- Histórico de conversas persistente por usuário (salvo no banco de dados)
-- Paginação do histórico de conversas na sidebar
+- Bloqueio de conta após 5 tentativas incorretas de login (30 minutos)
+- Histórico de conversas persistente por usuário (salvo no banco de dados), ordenado pelo mais recente
+- Paginação do histórico de conversas na sidebar com títulos automáticos por conversa
 - Saudação personalizada com o dia da semana e sugestões de perguntas rápidas
 - Perfil do usuário com edição de dados e redefinição de senha
+- Fixar e excluir conversas na sidebar
 - Consultar quantidade de chamados por status (Agendado, Pendente DTI, Em andamento, etc.)
 - Listar chamados com filtros por situação ou solicitante
 - Visualizar a descrição completa de um chamado
-- Enviar relatórios em CSV por e-mail diretamente pelo chat
-- Fluxo de e-mail inteligente: confirma o endereço antes de enviar
-- Fixar e excluir conversas na sidebar
-- Roteador inteligente: distingue bate-papo de consultas ao banco
+- **Chamados abertos hoje:** retorna lista completa no chat se < 10, ou total + oferta de relatório por e-mail se ≥ 10
+- **Resumo Pendentes DTI:** exibe os 10 chamados mais recentes com ticket, solicitante e data de abertura
+- **Busca por assunto:** encontra chamados por palavra-chave na descrição, informa a contagem e oferece envio por e-mail
+- **Tickets similares:** dado um número de ticket, busca outros chamados com descrição parecida usando extração de frase-chave via LLM
+- **Gráfico por status:** pizza interativa com percentual por situação (Plotly)
+- **Gráfico por período:** barras dos últimos 6 meses com atualização automática (Plotly)
+- Enviar relatórios em CSV por e-mail diretamente pelo chat (sem colunas desnecessárias, datas formatadas em PT-BR)
+- Fluxo de e-mail inteligente: confirma o endereço antes de enviar, evita envios duplicados
+- Roteador Python inteligente: intercepta gráficos, chamados do dia, busca por assunto e tickets similares antes de chamar o agente SQL
+- Roteador de intenção: distingue bate-papo de consultas ao banco
 
 ---
 
@@ -31,6 +39,7 @@ Chatbot inteligente para consulta e gerenciamento de chamados do sistema 4Biz, c
 | [Groq + LLaMA 3.3 70B](https://groq.com/) | Modelo de linguagem |
 | [PostgreSQL (Neon)](https://neon.tech/) | Banco de dados dos chamados e histórico |
 | [bcrypt](https://pypi.org/project/bcrypt/) | Criptografia de senhas |
+| [Plotly](https://plotly.com/python/) | Gráficos interativos |
 | [smtplib](https://docs.python.org/3/library/smtplib.html) | Envio de e-mail com relatório CSV |
 
 ---
@@ -72,6 +81,9 @@ CREATE TABLE usuarios (
     senha             TEXT NOT NULL,
     email             TEXT UNIQUE NOT NULL,
     senha_temporaria  BOOLEAN DEFAULT FALSE,
+    senha_temp_expira TIMESTAMP,
+    tentativas_login  INT DEFAULT 0,
+    bloqueado_ate     TIMESTAMP,
     criado_em         TIMESTAMP DEFAULT NOW()
 );
 
@@ -138,6 +150,17 @@ Acesse em: `http://localhost:8501`
 
 ---
 
+## Sugestões rápidas disponíveis
+
+| Sugestão | Comportamento |
+|---|---|
+| Quantos chamados foram abertos hoje? | < 10: lista no chat com descrição e solução. ≥ 10: total + oferta de e-mail |
+| Resumo dos chamados Pendentes DTI | Top 10 mais recentes com ticket, solicitante e data |
+| Gráfico de chamados por status | Pizza interativa por situação |
+| Gráfico de chamados por período | Barras dos últimos 6 meses |
+
+---
+
 ## Exemplos de uso
 
 ```
@@ -146,7 +169,10 @@ Acesse em: `http://localhost:8501`
 "Quais são os chamados em andamento?"
 "Me mostre os chamados do Paulo Basso"
 "Qual a descrição do ticket 1234?"
+"Temos algum ticket com descrição parecida com o 166121?"
+"Quais chamados falam sobre DOAL?"
 "Quero enviar um relatório dos chamados pendentes"
+"Gráfico de chamados por status"
 ```
 
 ---
@@ -158,7 +184,6 @@ Acesse em: `http://localhost:8501`
 ├── robo_extrator.py        # Robô que extrai e sincroniza dados do 4Biz
 ├── tools/
 │   ├── __init__.py
-│   ├── database.py         # Ferramenta de consulta SQL
 │   └── email_sender.py     # Ferramenta de envio de e-mail
 ├── requirements.txt
 ├── .gitignore
