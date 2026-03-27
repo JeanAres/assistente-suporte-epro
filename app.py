@@ -544,7 +544,7 @@ REGRA DE FORMATACAO: NUNCA junte resultados na mesma linha. Para listar os ticke
 Ticket [ticket] - [situacao_tarefa] - [solicitante] - Aberto em [DD/MM/YYYY HH:MM:SS]
 REGRA DE DESCRICAO: Quando o usuario pedir a "descricao", detalhes ou o texto de um ticket, OBRIGATORIO trazer o texto INTACTO e COMPLETO do banco de dados. NUNCA resuma, NUNCA corte o texto e NUNCA use reticencias (...).
 REGRA DE ENVIO DE EMAIL: Apos confirmar o email de destino, voce DEVE imediatamente chamar a ferramenta 'enviar_relatorio_email' passando o email confirmado e uma nova consulta SQL que busque os dados discutidos na conversa. NUNCA liste os dados novamente antes de enviar.
-REGRA DE ABERTOS HOJE: Quando o usuario perguntar quantos chamados "foram abertos hoje" ou "abertos hoje", SEMPRE filtre pela coluna 'data_abertura' usando a data atual (DATE(data_abertura) = CURRENT_DATE). NUNCA filtre por situacao_tarefa nesse caso.
+REGRA DE ABERTOS HOJE: Quando o usuario perguntar quantos chamados "foram abertos hoje" ou "abertos hoje", SEMPRE filtre pela coluna 'data_abertura' usando a data atual (DATE(data_abertura) = CURRENT_DATE). NUNCA filtre por situacao_tarefa nesse caso. Siga este fluxo: (1) Execute um COUNT para saber o total. (2) Se o total for MENOR QUE 10, busque e liste TODOS os chamados do dia diretamente no chat. Para chamados com situacao_tarefa Pendente DTI, Novo ou Em andamento, use o formato: "Ticket [numero] - [situacao_tarefa] - [solicitante] - Aberto em [DD/MM/YYYY HH:MM:SS]". Para chamados Resolvido, Fechado ou Cancelado, use OBRIGATORIAMENTE este formato com quebras de linha separadas: "Ticket [numero] - [situacao_tarefa] - [solicitante] - Aberto em [DD/MM/YYYY HH:MM:SS]\n[descricao]\nResposta da solucao: [solucao_resposta]". NUNCA junte descricao e solucao na mesma linha. NUNCA ofereça envio de e-mail quando o total for menor que 10. (3) Se o total for MAIOR OU IGUAL A 10, informe apenas o numero total e pergunte se deseja receber o relatorio completo por e-mail seguindo a REGRA DE EMAIL.
 REGRA DE PENDENTES DTI: Quando o usuario perguntar sobre chamados com situacao 'Pendente DTI' (seja pela mensagem pre-definida ou digitando manualmente, independente da forma que escrever), SEMPRE aplique estas restricoes OBRIGATORIAS: (1) Retorne APENAS os campos 'ticket', 'solicitante' e 'data_abertura', nada mais. (2) Limite SEMPRE a 10 resultados (LIMIT 10). (3) Ordene SEMPRE do mais recente para o mais antigo (ORDER BY data_abertura DESC). (4) Formate como lista simples: "Ticket [numero] - [solicitante] - Aberto em [DD/MM/YYYY HH:MM:SS]". (5) OBRIGATORIO: apos listar os tickets, adicione a mensagem: "Estes são os últimos 10 chamados abertos que foram classificados como Pendente DTI.". Se o usuario pedir descricao ou detalhes de 3 ou mais tickets dessa lista, NAO retorne as descricoes e em vez disso pergunte para qual email deve enviar o relatorio completo, seguindo a REGRA DE EMAIL ja estabelecida. Se pedir de 1 ou 2 tickets apenas, pode retornar a descricao normalmente.
 REGRA DE COMPARATIVOS: Quando o usuario fizer perguntas comparativas entre periodos (ex: "essa semana vs semana passada", "esse mes vs mes passado", "hoje vs ontem"), execute DUAS queries separadas, uma para cada periodo, e apresente os resultados comparando os valores. Calculos de periodos: hoje = DATE(data_abertura) = CURRENT_DATE | ontem = DATE(data_abertura) = CURRENT_DATE - INTERVAL '1 day' | semana atual = data_abertura >= DATE_TRUNC('week', CURRENT_DATE) AND data_abertura < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days' | semana passada = data_abertura >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days' AND data_abertura < DATE_TRUNC('week', CURRENT_DATE) | mes atual = data_abertura >= DATE_TRUNC('month', CURRENT_DATE) AND data_abertura < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month' | mes passado = data_abertura >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month' AND data_abertura < DATE_TRUNC('month', CURRENT_DATE). OBRIGATORIO: use o label correto para cada periodo (ex: "Hoje/Ontem", "Essa semana/Semana passada", "Esse mes/Mes passado"). Sempre informe a diferenca absoluta e percentual. Exemplo: "Essa semana: 12 chamados | Semana passada: 8 chamados | Diferenca: +4 chamados (+50%)".
 REGRA DE BUSCA POR ASSUNTO: Quando o usuario perguntar sobre chamados que tratam de um assunto, tema ou palavra especifica (ex: "chamados sobre agenda", "chamados que falam sobre DOAL", "tickets sobre erro"), siga OBRIGATORIAMENTE este fluxo: ETAPA 1 - Execute APENAS um SELECT COUNT(*) FROM chamados WHERE descricao ILIKE '%palavra%' e informe somente o numero encontrado. PROIBIDO retornar qualquer outro dado ou campo nesta etapa. PROIBIDO chamar enviar_relatorio_email nesta etapa. ETAPA 2 - Apos informar a contagem, pergunte se o usuario deseja receber o relatorio por e-mail seguindo a REGRA DE EMAIL. Somente apos confirmacao do usuario chame enviar_relatorio_email com SELECT * FROM chamados WHERE descricao ILIKE '%palavra%' ORDER BY data_abertura DESC. Se o usuario recusar, responda "Tudo bem! Se precisar de mais alguma informacao, estou por aqui." e PARE.
@@ -689,6 +689,49 @@ if prompt:
 
         historico_contexto = " | ".join([m['content'] for m in chat_info["mensagens"][-12:]])
         prompt_lower = prompt.lower()
+
+        # --- ROTEADOR DE CHAMADOS HOJE ---
+        triggers_hoje = ["foram abertos hoje", "abertos hoje", "abertos hoje?", "chamados hoje", "chamados de hoje"]
+        if any(t in prompt_lower for t in triggers_hoje):
+            try:
+                conn = get_conn()
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM chamados WHERE DATE(data_abertura) = CURRENT_DATE")
+                total = cur.fetchone()[0]
+                if total == 0:
+                    texto_final = "Nenhum chamado foi aberto hoje."
+                    conn.close()
+                elif total >= 10:
+                    conn.close()
+                    texto_final = f"Foram abertos **{total}** chamados hoje. Posso enviar o relatório completo para o e-mail **{usuario['email']}** ou gostaria que fosse enviado para outro endereço?"
+                else:
+                    cur.execute("""
+                        SELECT ticket, situacao_tarefa, solicitante, data_abertura, descricao, solucao_resposta
+                        FROM chamados
+                        WHERE DATE(data_abertura) = CURRENT_DATE
+                        ORDER BY data_abertura DESC
+                    """)
+                    rows = cur.fetchall()
+                    conn.close()
+                    linhas = []
+                    for row in rows:
+                        ticket, situacao, solicitante, data_ab, descricao, solucao = row
+                        data_fmt = data_ab.strftime('%d/%m/%Y %H:%M:%S') if data_ab else ''
+                        linha = f"**Ticket {ticket}** - {situacao} - {solicitante} - Aberto em {data_fmt}"
+                        if situacao in ('Resolvido', 'Fechado', 'Cancelado'):
+                            if descricao:
+                                linha += f"\n\n{descricao.strip()}"
+                            if solucao:
+                                linha += f"\n\nResposta da solução: {solucao.strip()}"
+                        linhas.append(linha)
+                    texto_final = "\n\n".join(linhas)
+            except Exception as e:
+                texto_final = "Tive um problema ao buscar os chamados de hoje. Tente novamente."
+            indicador.empty()
+            st.markdown(texto_final)
+            chat_info["mensagens"].append({"role": "assistant", "content": texto_final})
+            salvar_chat(st.session_state.chat_atual, chat_info, usuario["email"])
+            st.stop()
 
         # --- ROTEADOR DE GRAFICOS ---
         tipo_grafico = next((v for k, v in GRAFICOS_TRIGGERS.items() if k in prompt_lower), None)
