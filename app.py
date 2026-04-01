@@ -61,6 +61,34 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+import re as _re_clean
+
+def limpar_descricao(texto):
+    """Remove cabeçalho de email e assinatura, mantendo apenas o conteúdo útil."""
+    import re
+    if not texto:
+        return texto
+    # Tenta extrair a partir do Assunto:
+    match_assunto = re.search(r'Assunto\s*:\s*', texto, re.IGNORECASE)
+    if match_assunto:
+        texto = texto[match_assunto.start():]
+    else:
+        # Se não tem Assunto:, tenta cortar o cabeçalho do email (De:/Para:/Enviado:)
+        match_corpo = re.search(r'(Prezados?|Bom dia|Boa tarde|Boa noite|Ol[aá]|Solicito|Informo|Segue|Conforme)', texto, re.IGNORECASE)
+        if match_corpo:
+            texto = texto[match_corpo.start():]
+    # Corta na assinatura/rodapé
+    cortes = ['Att.,', 'Atenciosamente,', 'Atenciosamente.', 'Att.\n', '| ', 'Praça Marechal', 'Tel:', 'www.', 'CEP ', '(51)', 'Porto Alegre']
+    for corte in cortes:
+        idx = texto.find(corte)
+        if idx != -1:
+            texto = texto[:idx].strip()
+            break
+    # Normaliza espaços múltiplos e quebras de linha excessivas
+    texto = re.sub(r'[ \t]{2,}', ' ', texto)
+    texto = re.sub(r'\n{3,}', '\n\n', texto)
+    return texto.strip()
+
 # --- FUNCOES DE BANCO DE DADOS ---
 def get_conn():
     db_url = st.secrets["NEON_DB_URL"]
@@ -732,13 +760,13 @@ if prompt:
                         linhas = []
                         for r in similares:
                             t, sol, desc = r
-                            linhas.append(f"**Ticket {t}** - {sol}\n{desc or ''}")
+                            linhas.append(f"**Ticket {t}** - {sol}\n{limpar_descricao(desc) or ''}")
                         texto_final = "\n\n".join(linhas)
                     else:
                         linhas = []
                         for r in similares[:10]:
                             t, sol, desc = r
-                            linhas.append(f"**Ticket {t}** - {sol}\n{desc or ''}")
+                            linhas.append(f"**Ticket {t}** - {sol}\n{limpar_descricao(desc) or ''}")
                         lista = "\n\n".join(linhas)
                         texto_final = f"Estes são os 10 chamados relacionados ao ticket {num_ticket} mais recentes, mas temos um total de **{total}** chamados relacionados.\n\n{lista}\n\nPosso enviar um e-mail contendo todos para **{usuario['email']}** ou gostaria que fosse enviado para outro endereço?"
             except Exception as e:

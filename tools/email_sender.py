@@ -8,9 +8,31 @@ import pandas as pd
 import psycopg2
 import io
 import time
+import re
 
 # Controle global para evitar envios duplicados
 _ultimo_envio = {}
+
+def limpar_descricao(texto):
+    if not texto or not isinstance(texto, str):
+        return texto
+    match_assunto = re.search(r'Assunto:', texto, re.IGNORECASE)
+    if match_assunto:
+        texto = texto[match_assunto.start():]
+    cortes = [
+        r'[\n\s]Att\.[\s,|]', r'[\n\s]Atenciosamente',
+        r'\nAtt,', r'\| [A-Z][a-z]+ [A-Z][a-z]+',
+        r'\nPraça ', r'\nRua ', r'\nAv\.',
+        r'\nTel:', r'\nFone:', r'\nwww\.', r'\nhttp',
+        r' Att\.,', r' Atenciosamente,',
+    ]
+    for padrao in cortes:
+        match = re.search(padrao, texto)
+        if match:
+            texto = texto[:match.start()]
+    texto = re.sub(r'[ \t]{2,}', ' ', texto)
+    texto = re.sub(r'\n{3,}', '\n\n', texto)
+    return texto.strip()
 
 @tool
 def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
@@ -56,6 +78,15 @@ def enviar_relatorio_email(email_destino: str, consulta_sql: str) -> str:
         colunas_remover = [c for c in ['origem', 'grupo', 'tipo_demanda'] if c in df.columns]
         if colunas_remover:
             df = df.drop(columns=colunas_remover)
+
+        # Limpa descrição e solução
+        if 'descricao' in df.columns:
+            df['descricao'] = df['descricao'].apply(limpar_descricao)
+        if 'solucao_resposta' in df.columns:
+            df['solucao_resposta'] = df['solucao_resposta'].apply(limpar_descricao)
+
+        if 'descricao' in df.columns:
+            df['descricao'] = df['descricao'].apply(limpar_descricao)
 
         for col in df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, UTC]']).columns:
             df[col] = df[col].dt.strftime('%d/%m/%Y %H:%M:%S')
